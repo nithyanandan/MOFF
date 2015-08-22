@@ -15,16 +15,19 @@ import lookup_operations as LKP
 ################### Routines essential for parallel processing ################
 
 def unwrap_antenna_FT(arg, **kwarg):
-    return Antenna.FT_new(*arg, **kwarg)
+    return Antenna.FT_pp(*arg, **kwarg)
 
 def unwrap_interferometer_FX(arg, **kwarg):
-    return Interferometer.FX_new(*arg, **kwarg)
+    return Interferometer.FX_pp(*arg, **kwarg)
+
+def unwrap_interferometer_stack(arg, **kwarg):
+    return Interferometer.stack_pp(*arg, **kwarg)
 
 def unwrap_antenna_update(arg, **kwarg):
-    return Antenna.update_new(*arg, **kwarg)
+    return Antenna.update_pp(*arg, **kwarg)
 
 def unwrap_interferometer_update(arg, **kwarg):
-    return Interferometer.update_new(*arg, **kwarg)
+    return Interferometer.update_pp(*arg, **kwarg)
 
 def antenna_grid_mapping(gridind_raveled, values, bins=None):
     if bins is None:
@@ -87,2674 +90,6 @@ def baseline_grid_mapper(gridind_raveled, values, bins, label, outq):
 def find_1NN_arg_splitter(args, **kwargs):
     return LKP.find_1NN(*args, **kwargs)
 
-#################################################################################  
-
-class PolInfo_old:
-
-    """
-    ----------------------------------------------------------------------------
-    Class to manage polarization information of an antenna. 
-
-    Attributes:
-
-    Et_P1:   A complex numpy vector representing a time series of electric field
-             for polarization P1
-
-    Et_P2:   A complex numpy vector representing a time series of electric field
-             for polarization P2 which is orthogonal to P1
-        
-    flag_P1: [Boolean] True means P1 is to be flagged. Default = False
-
-    flag_P2: [Boolean] True means P2 is to be flagged. Default = False
-
-    pol_type: [string] Type of polarization. Accepted values are 'Linear' or
-              'Circular' 
-
-    Ef_P1:   A complex numpy vector representing the Fourier transform of Et_P1
-
-    Ef_P2:   A complex numpy vector representing the Fourier transform of Et_P2
-
-    Member functions:
-
-    __init__():    Initializes an instance of class PolInfo
-
-    __str__():     Prints a summary of current attributes.
-
-    temporal_F():  Perform a Fourier transform of an Electric field time series
-
-    update():      Routine to update the Electric field and flag information.
-    
-    delay_compensation():
-                   Routine to apply delay compensation to Electric field spectra 
-                   through additional phase.
-
-    Read the member function docstrings for details. 
-    ----------------------------------------------------------------------------
-    """
-
-    def __init__(self, nsamples=1):
-        """
-        ------------------------------------------------------------------------
-        Initialize the PolInfo Class which manages polarization information of
-        an antenna. 
-
-        Class attributes initialized are:
-        Et_P1, Et_P2, flag_P1, flag_P2, pol_type, Ef_P1, Ef_P2
-     
-        Read docstring of class PolInfo for details on these attributes.
-        ------------------------------------------------------------------------
-        """
-
-        if not isinstance(nsamples, int):
-            raise TypeError('nsamples must be an integer')
-        elif nsamples <= 0:
-            nsamples = 1
-
-        self.Et_P1 = NP.empty(nsamples, dtype=NP.complex64)
-        self.Et_P2 = NP.empty(nsamples, dtype=NP.complex64)
-        self.Ef_P1 = NP.empty(2 * nsamples, dtype=NP.complex64)
-        self.Ef_P2 = NP.empty(2 * nsamples, dtype=NP.complex64)
-        self.Et_P1.fill(NP.nan)
-        self.Et_P2.fill(NP.nan)
-        self.Ef_P1.fill(NP.nan)
-        self.Ef_P2.fill(NP.nan)
-        self.flag_P1 = True
-        self.flag_P2 = True
-        self.pol_type = ''
-
-    ############################################################################ 
-
-    def __str__(self):
-        return ' Instance of class "{0}" in module "{1}" \n flag (P1): {2} \n flag (P2): {3} \n Polarization type: {4} '.format(self.__class__.__name__, self.__module__, self.flag_P1, self.flag_P2, self.pol_type)
-
-    ############################################################################ 
-
-    def temporal_F(self, pol=None):
-
-        """
-        ------------------------------------------------------------------------
-        Perform a Fourier transform of an Electric field time series after 
-        doubling the length of the sequence with zero padding (in order to be 
-        identical to what would be obtained from a XF oepration)
-
-        Keyword Input(s):
-
-        pol     polarization to be Fourier transformed. Set to 'P1' or 'P2'. If 
-                None provided, both time series Et_P1 and Et_P2 are Fourier 
-                transformed.
-
-        Outputs:
-
-        Electric field spectrum Ef_P1 and/or Ef_P2 depending on value of pol.
-        ------------------------------------------------------------------------
-        """
-
-        if pol is None:
-            Et_P1 = NP.pad(self.Et_P1, (0,len(self.Et_P1)), 'constant',
-                           constant_values=(0,0))
-            Et_P2 = NP.pad(self.Et_P2, (0,len(self.Et_P2)), 'constant',
-                           constant_values=(0,0))
-            self.Ef_P1 = DSP.FT1D(Et_P1, ax=0, use_real=False, inverse=False, shift=True)
-            self.Ef_P2 = DSP.FT1D(Et_P2, ax=0, use_real=False, inverse=False, shift=True)
-        elif pol in ['P1','p1','P2','p2','x','X','y','Y']:
-            if pol in ['P1','p1','x','X']:
-                Et_P1 = NP.pad(self.Et_P1, (0,len(self.Et_P1)), 'constant',
-                               constant_values=(0,0))
-                self.Ef_P1 = DSP.FT1D(Et_P1, ax=0, use_real=False, inverse=False, shift=True)
-            else:
-                Et_P2 = NP.pad(self.Et_P2, (0,len(self.Et_P2)), 'constant',
-                               constant_values=(0,0))
-                self.Ef_P2 = DSP.FT1D(Et_P2, ax=0, use_real=False, inverse=False, shift=True)
-        else:
-            raise ValueError('Polarization string unrecognized. Verify inputs. Aborting PolInfo.temporal_F()')
-
-    ############################################################################
-
-    def delay_compensation(self, delaydict=None):
-        
-        """
-        -------------------------------------------------------------------------
-        Routine to apply delay compensation to Electric field spectra through
-        additional phase.
-
-        Keyword input(s):
-
-        delaydict   [dictionary] contains the following keys:
-                    'pol': string specifying the polarization for which delay 
-                           compensation is to be applied. Accepted values are
-                           'x', 'X', 'p1', 'P1', 'y', 'Y', 'p2', and 'P2'. No
-                           default.
-                    'frequencies': scalar, list or numpy vector specifying the 
-                           frequencie(s) (in Hz) for which delays are specified. 
-                           If a scalar is specified, the delays are assumed to be
-                           frequency independent and the delays are assumed to be
-                           valid for all frequencies. If a vector is specified, 
-                           it must be of same size as the delays and as the 
-                           number of samples in the electric field timeseries. 
-                           These frequencies are assumed to match those of the 
-                           electric field spectrum. No default.
-                    'delays': list or numpy vector specifying the delays (in 
-                           seconds) at the respective frequencies which are to be 
-                           compensated through additional phase in the electric 
-                           field spectrum. Must be of same size as frequencies 
-                           and the size of the electric field timeseries. No
-                           default.
-                    'fftshifted': boolean scalar indicating if the frequencies 
-                           provided have already been fft-shifted. If True 
-                           (default), the frequencies are assumed to have been 
-                           fft-shifted. Otherwise, they have to be fft-shifted
-                           before applying the delay compensation to rightly 
-                           align with the fft-shifted electric field spectrum
-                           computed in member function temporal_F().
-
-        -------------------------------------------------------------------------
-        """
-
-        if delaydict is None:
-            raise NameError('Delay information must be supplied for delay correction in the dictionary delaydict.')
-       
-        if delaydict['pol'] is None:
-            raise KeyError('Key "pol" indicating polarization not found in delaydict holding delay information.')
-
-        if delaydict['pol'] not in ['x', 'X', 'p1', 'P1', 'y', 'Y', 'p2', 'P2']:
-            raise ValueError('Invalid value for "pol" keywrod in delaydict.')
-
-        if 'delays' in delaydict:
-            if NP.asarray(delaydict['delays']).size == 1:
-                if delaydict['pol'] in ['x', 'X', 'p1', 'P1']:
-                    delays = delaydict['delays'] + NP.zeros(self.Et_P1.size)
-                else:
-                    delays = delaydict['delays'] + NP.zeros(self.Et_P2.size)
-            else:
-                if delaydict['pol'] in ['x', 'X', 'p1', 'P1']:
-                    if (NP.asarray(delaydict['delays']).size != self.Et_P1.size):
-                        raise IndexError('Size of delays in delaydict must be equal to 1 or match that of the timeseries.')
-                    else:
-                        delays = NP.asarray(delaydict['delays']).ravel()
-                else:
-                    if (NP.asarray(delaydict['delays']).size != self.Et_P2.size):
-                        raise IndexError('Size of delays in delaydict must be equal to 1 or match that of the timeseries.')
-                    else:
-                        delays = NP.asarray(delaydict['delays']).ravel()
-        else:
-            if delaydict['pol'] in ['x', 'X', 'p1', 'P1']:
-                delays = NP.zeros(self.Et_P1.size)
-            else:
-                delays = NP.zeros(self.Et_P2.size)
-            
-        if 'frequencies' not in delaydict:
-            raise KeyError('Key "frequencies" not found in dictionary delaydict holding delay information.')
-        else:
-            frequencies = NP.asarray(delaydict['frequencies']).ravel()
-
-        if delaydict['pol'] in ['x', 'X', 'p1', 'P1']:
-            if frequencies.size != self.Et_P1.size:
-                raise IndexError('Size of frequencies must match that of the Electric field time series.')
-        else:
-            if frequencies.size != self.Et_P2.size:
-                raise IndexError('Size of frequencies must match that of the Electric field time series.')
-        
-        temp_phases = 2 * NP.pi * delays * frequencies
-
-        # Convert phases to fft-shifted arrangement based on key "fftshifted" in delaydict
-        if 'fftshifted' in delaydict:
-            if delaydict['fftshifted'] is not None:
-                if not delaydict['fftshifted']:
-                    temp_phases = NP.fft.fftshift(temp_phases)  
-
-        # Expand the size to account for the fact that the Fourier transform of the timeseries is obtained after zero padding
-        phases = NP.empty(2*frequencies.size) 
-        phases[0::2] = temp_phases
-        phases[1::2] = temp_phases
-
-        if delaydict['pol'] in ['x', 'X', 'p1', 'P1']:
-            self.Ef_P1 *= NP.exp(1j * phases)
-        else:
-            self.Ef_P2 *= NP.exp(1j * phases)
-
-        ## INSERT FEATURE: yet to modify the timeseries after application of delay compensation ##
-
-    ############################################################################
-
-    def update(self, Et_P1=None, Et_P2=None, flag_P1=False, flag_P2=False,
-               delaydict_P1=None, delaydict_P2=None, pol_type='Linear'):
-
-        """
-        ------------------------------------------------------------------------
-        Routine to update the Electric field and flag information.
-
-        Keyword input(s):
-
-        Et_P1:         [Complex vector] The new electric field time series in
-                       polarization P1 that will replace the current attribute
-
-        Et_P2:         [Complex vector] The new electric field time series in 
-                       polarization P2 that will replace the current attribute
-
-        flag_P1:       [boolean] flag update for polarization P1
-
-        flag_P2:       [boolean] flag update for polarization P2
-                        
-        delaydict_P1:  Dictionary containing information on delay compensation
-                       to be applied to the fourier transformed electric fields
-                       for polarization P1. Default is None (no delay
-                       compensation to be applied). Refer to the docstring of
-                       member function delay_compensation() of class PolInfo
-                       for more details.
-
-        delaydict_P2:  Dictionary containing information on delay compensation
-                       to be applied to the fourier transformed electric fields
-                       for polarization P2. Default is None (no delay
-                       compensation to be applied). Refer to the docstring of
-                       member function delay_compensation() of class PolInfo
-                       for more details.
-
-        pol_type:      'Linear' or 'Circular' polarization
-        ------------------------------------------------------------------------
-        """
-        
-        if Et_P1 is not None:
-            self.Et_P1 = NP.asarray(Et_P1)
-            self.temporal_F(pol='X')
-              
-        if Et_P2 is not None:
-            self.Et_P2 = NP.asarray(Et_P2)
-            self.temporal_F(pol='Y')
-
-        if delaydict_P1 is not None:
-            if 'pol' not in delaydict_P1:
-                delaydict_P1['pol'] = 'P1'
-            self.delay_compensation(delaydict=delaydict_P1)
-
-        if delaydict_P2 is not None:
-            if 'pol' not in delaydict_P2:
-                delaydict_P2['pol'] = 'P2'
-            self.delay_compensation(delaydict=delaydict_P2)
-
-        if flag_P1 is not None: self.flag_P1 = flag_P1
-        if flag_P2 is not None: self.flag_P2 = flag_P2
-        if pol_type is not None: self.pol_type = pol_type
-
-#####################################################################################
-
-class Antenna_old:
-
-    """
-    ----------------------------------------------------------------------------
-    Class to manage individual antenna information.
-
-    Attributes:
-
-    label:      [Scalar] A unique identifier (preferably a string) for the 
-                antenna. 
-
-    latitude:   [Scalar] Latitude of the antenna's location.
-
-    location:   [Instance of GEOM.Point class] The location of the antenna in 
-                local East, North, Up coordinate system.
-
-    timestamp:  [Scalar] String or float representing the timestamp for the 
-                current attributes
-
-    t:          [vector] The time axis for the time series of electric fields
-
-    f:          [vector] Frequency axis obtained by a Fourier Transform of
-                the electric field time series. Same length as attribute t 
-
-    f0:         [Scalar] Positive value for the center frequency in Hz.
-
-    pol:        [Instance of class PolInfo] polarization information for the 
-                antenna. Read docstring of class PolInfo for details
-
-    wts_P1:     [List of 1-column Vectors] The gridding weights for antenna in 
-                the local ENU coordinate system under polarization P1. These could 
-                be complex. This is provided as a list of numpy vectors, where each 
-                vector corresponds to a frequency channel. See wtspos_P1_scale.
-
-    wts_P2:     [List of 1-column Vectors] The gridding weights for antenna in 
-                the local ENU coordinate system under polarization P2. These could 
-                be complex. This is provided as a list of numpy vectors, where each 
-                vector corresponds to a frequency channel. See wtspos_P2_scale.
-
-    wtspos_P1:  [List of 2-column numpy arrays] Each 2-column numpy array is the 
-                position of the gridding weights for a corresponding frequency 
-                channel for polarization P1. The size of the list must be the 
-                as wts_P1 and the number of channels. See wtspos_P1_scale. Units
-                are in number of wavelengths.
-
-    wtspos_P2:  [List of 2-column numpy arrays] Each 2-column numpy array is the 
-                position of the gridding weights for a corresponding frequency 
-                channel for polarization P2. The size of the list must be the 
-                as wts_P2 and the number of channels. See wtspos_P2_scale. Units
-                are in number of wavelengths.
-
-    wtspos_P1_scale [None or 'scale'] If None, numpy vectors in wts_P1 and 
-                    wtspos_P1 are provided for each frequency channel. If set to
-                    'scale' wts_P1 and wtspos_P1 contain a list of only one 
-                    numpy array corresponding to a reference frequency. This is
-                    scaled internally to correspond to the first channel.
-                    The gridding positions are correspondingly scaled to all the 
-                    frequency channels.
-
-    wtspos_P2_scale [None or 'scale'] If None, numpy vectors in wts_P2 and 
-                    wtspos_P2 are provided for each frequency channel. If set to
-                    'scale' wts_P2 and wtspos_P2 contain a list of only one 
-                    numpy array corresponding to a reference frequency. This is
-                    scaled internally to correspond to the first channel.
-                    The gridding positions are correspondingly scaled to all the 
-                    frequency channels.
-
-    gridinfo_P1     [Dictionary] Contains gridding information pertaining to the
-                    antenna under polarization P1. It contains keys for each 
-                    frequency channel number. Each of these keys holds another
-                    dictionary. This sub-dictionary consists of the following 
-                    keys which hold the information described below:
-
-                    f:           the frequency [in Hz] corresponding to the channel
-                                 number
-                    flag:        [Boolean] flag for frequency channel. True means
-                                 the frequency channel is to be flagged.
-                    gridxy_ind   [List of tuples] Each tuple holds the index of the
-                                 interpolated position (in local ENU coordinate 
-                                 system) on the grid. 
-                    illumination [Numpy vector] The voltage pattern contributed by
-                                 the antenna at that frequency to the grid. This 
-                                 could contain complex values. 
-                    Ef           [Numpy vector] The voltage seen by the antenna on
-                                 the grid. This could contain complex values. 
-
-    gridinfo_P2     [Dictionary] Contains gridding information pertaining to the
-                    antenna under polarization P2. It contains keys for each 
-                    frequency channel number. Each of these keys holds another
-                    dictionary. This sub-dictionary consists of the following 
-                    keys which hold the information described below:
-
-                    f:           the frequency [in Hz] corresponding to the channel
-                                 number
-                    flag:        [Boolean] flag for frequency channel. True means
-                                 the frequency channel is to be flagged.
-                    gridxy_ind   [List of tuples] Each tuple holds the index of the
-                                 interpolated position (in local ENU coordinate 
-                                 system) on the grid. 
-                    illumination [Numpy vector] The voltage pattern contributed by
-                                 the antenna at that frequency to the grid. This 
-                                 could contain complex values. 
-                    Ef           [Numpy vector] The voltage seen by the antenna on
-                                 the grid. This could contain complex values. 
-    
-    blc_P1          [2-element numpy array] Bottom Left corner where the antenna
-                    contributes non-zero weight to the grid in polarization P1
-
-    trc_P1          [2-element numpy array] Top right corner where the antenna
-                    contributes non-zero weight to the grid in polarization P1
-
-    blc_P2          [2-element numpy array] Bottom Left corner where the antenna
-                    contributes non-zero weight to the grid in polarization P2
-
-    trc_P2          [2-element numpy array] Top right corner where the antenna
-                    contributes non-zero weight to the grid in polarization P2
-
-    Member Functions:
-
-    __init__():      Initializes an instance of class Antenna
-
-    __str__():       Prints a summary of current attributes
-
-    channels():      Computes the frequency channels from a temporal Fourier 
-                     Transform
-
-    update():        Updates the antenna instance with newer attribute values
-
-    save():          Saves the antenna information to disk. Needs serious 
-                     development. 
-
-    Read the member function docstrings for details.
-    ----------------------------------------------------------------------------
-    """
-
-    def __init__(self, label, latitude, location, center_freq, nsamples=1):
-        """
-        ------------------------------------------------------------------------
-        Initialize the Antenna Class which manages an antenna's information 
-
-        Class attributes initialized are:
-        label, latitude, location, pol, t, timestamp, f0, f, wts_P1, wts_P2, 
-        wtspos_P1, wtspos_P2, wtspos_P1_scale, wtspos_P2_scale, gridinfo_P1, 
-        gridinfo_P2, blc_P1, trc_P1, blc_P2, trc_P2
-     
-        Read docstring of class Antenna for details on these attributes.
-        ------------------------------------------------------------------------
-        """
-
-        try:
-            label
-        except NameError:
-            raise NameError('Antenna label must be provided.')
-
-        try:
-            latitude
-        except NameError:
-            self.latitude = 0.0
-
-        try:
-            location
-        except NameError:
-            self.location = GEOM.Point()
-
-        try:
-            center_freq
-        except NameError:
-            raise NameError('Center frequency must be provided.')
-
-        self.label = label
-        self.latitude = latitude
-
-        if isinstance(location, GEOM.Point):
-            self.location = location
-        elif isinstance(location, (list, tuple, NP.ndarray)):
-            self.location = GEOM.Point(location)
-        else:
-            raise TypeError('Antenna position must be a 3-element tuple or an instance of GEOM.Point')
-
-        self.pol = PolInfo(nsamples=nsamples)
-        self.t = 0.0
-        self.timestamp = 0.0
-        self.f0 = center_freq
-        self.f = self.f0
-
-        self.wts_P1 = []
-        self.wts_P2 = []
-        self.wtspos_P1_scale = None
-        self.wtspos_P1 = []
-        self.wtspos_P2 = []
-        self.wtspos_P2_scale = None
-        
-        self.gridinfo_P1 = {}
-        self.gridinfo_P2 = {}
-
-        self.blc_P1 = NP.asarray([self.location.x, self.location.y]).reshape(1,2)
-        self.trc_P1 = NP.asarray([self.location.x, self.location.y]).reshape(1,2)
-        self.blc_P2 = NP.asarray([self.location.x, self.location.y]).reshape(1,2)
-        self.trc_P2 = NP.asarray([self.location.x, self.location.y]).reshape(1,2)
-
-    #################################################################################
-
-    def __str__(self):
-        return ' Instance of class "{0}" in module "{1}" \n label: {2} \n location: {3}'.format(self.__class__.__name__, self.__module__, self.label, self.location.__str__())
-
-    #################################################################################
-
-    def channels(self):
-        """
-        ------------------------------------------------------------------------
-        Computes the frequency channels from a temporal Fourier Transform 
-        assuming the temporal sequence has doubled in length with zero 
-        padding while maintaining the time resolution.
-
-        Output(s):
-
-        Frequencies corresponding to channels obtained by a Fourier Transform
-        of the time series.
-        ------------------------------------------------------------------------
-        """
-
-        return DSP.spectax(2*len(self.t), self.t[1]-self.t[0], shift=True)
-
-    #################################################################################
-
-    def update(self, label=None, Et_P1=None, Et_P2=None, t=None, timestamp=None,
-               location=None, wtsinfo_P1=None, wtsinfo_P2=None, flag_P1=None,
-               flag_P2=None, gridfunc_freq=None, delaydict_P1=None,
-               delaydict_P2=None, ref_freq=None, pol_type='Linear',
-               verbose=False):
-        """
-        -------------------------------------------------------------------------
-        Routine to update all or some of the antenna information 
-
-        Inputs:
-
-        label      [scalar string] Antenna identifier
-                   
-        Et_P1      [Numpy vector] Electric field stream for P1 polarization. 
-                   Should be of same length as t
-                   
-        Et_P2      [Numpy vector] Electric field stream for P2 polarization. 
-                   Should be of same length as t
-                   
-        t          [Numpy vector] Time axis for the time series
-
-        timestamp  [Scalar] Float or string that uniquely identifies the time 
-                   series
-
-        location   [instance of class GEOM.Point] Local ENU coordinates of the
-                   antenna
-
-        wtsinfo_P1 [List of dictionaries] Length of list is equal to the number
-                   of frequency channels or one (equivalent to setting
-                   wtspos_P1_scale to 'scale'.). The list is indexed by 
-                   the frequency channel number. Each element in the list
-                   consists of a dictionarycorresponding to that frequency
-                   channel. Each dictionary consists of three items with the
-                   following keys in no particular order:
-
-                   wtspos      [2-column Numpy array, optional] u- and v- 
-                               positions for the gridding weights. Units
-                               are in number of wavelengths. It is 
-                               recommended that sufficient padding is provided in 
-                               wtspos and wts
-                   wts         [Numpy array] Complex gridding weights. Size is
-                               equal to the number of rows in wtspos above
-                   orientation [scalar] Orientation (in radians) of the wtspos 
-                               coordinate system relative to the local ENU 
-                               coordinate system. It is measured North of East. 
-                   lookup      [string] If set, refers to a file location
-                               containing the wtspos and wts information above as
-                               columns (x-loc [float], y-loc [float], wts
-                               [real], wts[imag if any]). If set, wtspos and wts 
-                               information are obtained from this lookup table 
-                               and the wtspos and wts keywords in the dictionary
-                               are ignored. Note that wtspos values are obtained
-                               after dividing x- and y-loc lookup values by the
-                               wavelength
-
-        wtsinfo_P2 [List of dictionaries] Length of list is equal to the number
-                   of frequency channels or one (equivalent to setting
-                   wtspos_P2_scale to 'scale'.). The list is indexed by 
-                   the frequency channel number. Each element in the list
-                   consists of a dictionarycorresponding to that frequency
-                   channel. Each dictionary consists of three items with the
-                   following keys in no particular order:
-
-                   wtspos      [2-column Numpy array, optional] u- and v- 
-                               positions for the gridding weights. Units
-                               are in number of wavelengths. It is 
-                               recommended that sufficient padding is provided in 
-                               wtspos and wts
-                   wts         [Numpy array] Complex gridding weights. Size is
-                               equal to the number of rows in wtspos above
-                   orientation [scalar] Orientation (in radians) of the wtspos 
-                               coordinate system relative to the local ENU 
-                               coordinate system. It is measured North of East. 
-                   lookup      [string] If set, refers to a file location
-                               containing the wtspos and wts information above as
-                               columns (x-loc [float], y-loc [float], wts
-                               [real], wts[imag if any]). If set, wtspos and wts 
-                               information are obtained from this lookup table 
-                               and the wtspos and wts keywords in the dictionary
-                               are ignored. Note that wtspos values are obtained
-                               after dividing x- and y-loc lookup values by the
-                               wavelength
-
-        flag_P1    [Boolean] Flag for polarization P1 for the antenna
-
-        flag_P2    [Boolean] Flag for polarization P2 for the antenna
-
-        delaydict_P1: Dictionary containing information on delay compensation
-                   to be applied to the fourier transformed electric fields
-                   for polarization P1. Default is None (no delay
-                   compensation to be applied). Refer to the docstring of
-                   member function delay_compensation() of class PolInfo
-                   for more details.
-
-        delaydict_P2: Dictionary containing information on delay compensation
-                   to be applied to the fourier transformed electric fields
-                   for polarization P2. Default is None (no delay
-                   compensation to be applied). Refer to the docstring of
-                   member function delay_compensation() of class PolInfo
-                   for more details.
-
-        gridfunc_freq [String scalar] If set to None (not provided) or to 'scale'
-                   assumes that wtspos_P1 and wtspos_P2 are given for a
-                   reference frequency which need to be scaled for the frequency
-                   channels. Will be ignored if the wtsinfo_P1 and wtsinfo_P2 
-                   have sizes equal to the number of frequency channels.
-
-        ref_freq   [Scalar] Positive value (in Hz) of reference frequency (used
-                   if gridfunc_freq is set to None or 'scale') at which
-                   wtspos_P1 and wtspos_P2 are provided. If set to None,
-                   ref_freq is assumed to be equal to the center frequency in 
-                   the class Antenna's attribute. 
-
-        pol_type   [String scalar] Should be set to 'Linear' or 'Circular' to
-                   denote the type of polarization. Default = 'Linear'
-
-        verbose    [Boolean] Default = False. If set to True, prints some 
-                   diagnostic or progress messages.
-
-        ------------------------------------------------------------------------
-        """
-
-        if label is not None: self.label = label
-        if location is not None: self.location = location
-        if timestamp is not None: self.timestamp = timestamp
-
-        if t is not None:
-            self.t = t
-            self.f = self.f0 + self.channels()           
-
-        if (flag_P1 is not None) or (flag_P2 is not None) or (Et_P1 is not None) or (Et_P2 is not None) or (delaydict_P1 is not None) or (delaydict_P2 is not None):
-            self.pol.update(Et_P1=Et_P1, Et_P2=Et_P2, flag_P1=flag_P1, flag_P2=flag_P2, delaydict_P1=delaydict_P1, delaydict_P2=delaydict_P2, pol_type=pol_type)
-
-        if wtsinfo_P1 is not None:
-            self.wtspos_P1 = []
-            self.wts_P1 = []
-            angles = []
-            if len(wtsinfo_P1) == len(self.f):
-                self.wtspos_P1_scale = None
-                # self.wts_P1 += [wtsinfo[1] for wtsinfo in wtsinfo_P1]
-                angles += [wtsinfo['orientation'] for wtsinfo in wtsinfo_P1]
-                for i in xrange(len(self.f)):
-                    rotation_matrix = NP.asarray([[NP.cos(-angles[i]),  NP.sin(-angles[i])],
-                                                  [-NP.sin(-angles[i]), NP.cos(-angles[i])]])
-                    if ('lookup' not in wtsinfo_P1[i]) or (wtsinfo_P1[i]['lookup'] is None):
-                        self.wts_P1 += [wtsinfo_P1[i]['wts']]
-                        wtspos = wtsinfo_P1[i]['wtspos']
-                    else:
-                        lookupdata = LKP.read_lookup(wtsinfo_P1[i]['lookup'])
-                        wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (self.f[i]/FCNST.c)
-                        self.wts_P1 += [lookupdata[2]]
-                        # lookupdata = NP.loadtxt(wtsinfo_P1[i]['lookup'], usecols=(1,2,3), dtype=(NP.float, NP.float, NP.complex))
-                        # wtspos = NP.hstack((lookupdata[:,0].reshape(-1,1), lookupdata[:,1].reshape(-1,1)))
-                        # self.wts_P1 += [lookupdata[:,2]]
-                    self.wtspos_P1 += [ NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]
-                self.blc_P1 = NP.repeat(NP.asarray([self.location.x, self.location.y]).reshape(1,-1),len(self.f),axis=0) - NP.abs(NP.asarray([NP.amin((FCNST.c/self.f[i])*self.wtspos_P1[i],0) for i in range(len(self.f))]))
-                self.trc_P1 = NP.repeat(NP.asarray([self.location.x, self.location.y]).reshape(1,-1),len(self.f),axis=0) + NP.abs(NP.asarray([NP.amax((FCNST.c/self.f[i])*self.wtspos_P1[i],0) for i in range(len(self.f))]))
-            elif len(wtsinfo_P1) == 1:
-                if (gridfunc_freq is None) or (gridfunc_freq == 'scale'):
-                    self.wtspos_P1_scale = 'scale'
-                    if ref_freq is None:
-                        ref_freq = self.f0
-                    angles = wtsinfo_P1[0]['orientation']
-                    rotation_matrix = NP.asarray([[NP.cos(-angles),  NP.sin(-angles)],
-                                                  [-NP.sin(-angles), NP.cos(-angles)]])
-                    if ('lookup' not in wtsinfo_P1[0]) or (wtsinfo_P1[0]['lookup'] is None):
-                        self.wts_P1 += [ wtsinfo_P1[0]['wts'] ]
-                        wtspos = wtsinfo_P1[0]['wtspos']
-                    else:
-                        lookupdata = LKP.read_lookup(wtsinfo_P1[0]['lookup'])
-                        wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (ref_freq/FCNST.c)
-                        self.wts_P1 += [lookupdata[2]]
-                        # lookupdata = NP.loadtxt(wtsinfo_P1[0]['lookup'], usecols=(1,2,3), dtype=(NP.float, NP.float, NP.complex))
-                        # wtspos = NP.hstack((lookupdata[:,0].reshape(-1,1), lookupdata[:,1].reshape(-1,1)))
-                        # self.wts_P1 += [lookupdata[:,2]]
-                    self.wtspos_P1 += [ (self.f[0]/ref_freq) * NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]
-                # elif gridfunc_freq == 'noscale':
-                #     self.wtspos_P1_scale = 'noscale'
-                #     self.wts_P1 += [ wtsinfo_P1[1] ]
-                #     angles += [ wtsinfo_P1[2] ]
-                #     rotation_matrix = NP.asarray([[NP.cos(-angles),  NP.sin(-angles)],
-                #                                   [-NP.sin(-angles), NP.cos(-angles)]])
-                #     self.wtspos_P1 += [ NP.dot(NP.asarray(wtsinfo_P1[0][0]), rotation_matrix.T) ]
-                else:
-                    raise ValueError('gridfunc_freq must be set to None, "scale" or "noscale".')
-
-                self.blc_P1 = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - (FCNST.c/self.f[0]) * NP.abs(NP.amin(self.wtspos_P1[0], 0))
-                self.trc_P1 = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + (FCNST.c/self.f[0]) * NP.abs(NP.amax(self.wtspos_P1[0], 0))
-
-            else:
-                raise ValueError('Number of elements in wtsinfo_P1 is incompatible with the number of channels.')
-
-        if wtsinfo_P2 is not None:
-            self.wtspos_P2 = []
-            self.wts_P2 = []
-            angles = []
-            if len(wtsinfo_P2) == len(self.f):
-                self.wtspos_P2_scale = None
-                # self.wts_P2 += [wtsinfo[1] for wtsinfo in wtsinfo_P2]
-                angles += [wtsinfo['orientation'] for wtsinfo in wtsinfo_P2]
-                for i in range(len(self.f)):
-                    rotation_matrix = NP.asarray([[NP.cos(-angles[i]),  NP.sin(-angles[i])],
-                                                  [-NP.sin(-angles[i]), NP.cos(-angles[i])]])
-                    if ('lookup' not in wtsinfo_P2[i]) or (wtsinfo_P2[i]['lookup'] is None):
-                        self.wts_P2 += [wtsinfo_P2[i]['wts']]
-                        wtspos = wtsinfo_P2[i]['wtspos']
-                    else:
-                        lookupdata = LKP.read_lookup(wtsinfo_P2[i]['lookup'])
-                        wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (self.f[i]/FCNST.c)
-                        self.wts_P2 += [lookupdata[2]]
-                        # lookupdata = NP.loadtxt(wtsinfo_P2[i]['lookup'], usecols=(1,2,3), dtype=(NP.float, NP.float, NP.complex))
-                        # wtspos = NP.hstack((lookupdata[:,0].reshape(-1,1), lookupdata[:,1].reshape(-1,1)))
-                        # self.wts_P2 += [lookupdata[:,2]]
-                    self.wtspos_P2 += [ NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]
-                self.blc_P2 = NP.repeat(NP.asarray([self.location.x, self.location.y]).reshape(1,-1),len(self.f),axis=0) - NP.abs(NP.asarray([NP.amin((FCNST.c/self.f[i])*self.wtspos_P2[i],0) for i in range(len(self.f))]))
-                self.trc_P2 = NP.repeat(NP.asarray([self.location.x, self.location.y]).reshape(1,-1),len(self.f),axis=0) + NP.abs(NP.asarray([NP.amax((FCNST.c/self.f[i])*self.wtspos_P2[i],0) for i in range(len(self.f))]))
-            elif len(wtsinfo_P2) == 1:
-                if (gridfunc_freq is None) or (gridfunc_freq == 'scale'):
-                    self.wtspos_P2_scale = 'scale'
-                    if ref_freq is None:
-                        ref_freq = self.f0
-                    angles = wtsinfo_P2[0]['orientation']
-                    rotation_matrix = NP.asarray([[NP.cos(-angles),  NP.sin(-angles)],
-                                                  [-NP.sin(-angles), NP.cos(-angles)]])
-                    if ('lookup' not in wtsinfo_P2[0]) or (wtsinfo_P2[0]['lookup'] is None):
-                        self.wts_P2 += [ wtsinfo_P2[0]['wts'] ]
-                        wtspos = wtsinfo_P2[0]['wtspos']
-                    else:
-                        lookupdata = LKP.read_lookup(wtsinfo_P2[0]['lookup'])
-                        wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (ref_freq/FCNST.c)
-                        self.wts_P2 += [lookupdata[2]]
-                        # lookupdata = NP.loadtxt(wtsinfo_P2[0]['lookup'], usecols=(1,2,3), dtype=(NP.float, NP.float, NP.complex))
-                        # wtspos = NP.hstack((lookupdata[:,0].reshape(-1,1), lookupdata[:,1].reshape(-1,1)))
-                        # self.wts_P2 += [lookupdata[:,2]]
-                    self.wtspos_P2 += [ (self.f[0]/ref_freq) * NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]
-                # elif gridfunc_freq == 'noscale':
-                #     self.wtspos_P2_scale = 'noscale'
-                #     self.wts_P2 += [ wtsinfo_P2[1] ]
-                #     angles += [ wtsinfo_P2[2] ]
-                #     rotation_matrix = NP.asarray([[NP.cos(-angles),  NP.sin(-angles)],
-                #                                   [-NP.sin(-angles), NP.cos(-angles)]])
-                #     self.wtspos_P2 += [ NP.dot(NP.asarray(wtsinfo_P2[0][0]), rotation_matrix.T) ]
-                else:
-                    raise ValueError('gridfunc_freq must be set to None, "scale" or "noscale".')
-
-                self.blc_P2 = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - (FCNST.c/self.f[0]) * NP.abs(NP.amin(self.wtspos_P2[0], 0))
-                self.trc_P2 = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + (FCNST.c/self.f[0]) * NP.abs(NP.amax(self.wtspos_P2[0], 0))
-
-            else:
-                raise ValueError('Number of elements in wtsinfo_P2 is incompatible with the number of channels.')
-
-        if verbose:
-            print 'Updated antenna {0}.'.format(self.label)
-
-    #############################################################################
-
-    def save(self, antfile, pol=None, tabtype='BinTableHDU', overwrite=False,
-             verbose=True):
-
-        """
-        -------------------------------------------------------------------------
-        Saves the antenna information to disk. 
-
-        Input:
-
-        antfile     [string] antenna filename with full path. Will be appended 
-                    with antenna label and '.fits' extension
-
-        Keyword Input(s):
-
-        pol         [string] indicates which polarization information to be 
-                    saved. Allowed values are 'P1', 'P2' or None (default). If 
-                    None, information on both polarizations are saved.
-
-        tabtype     [string] indicates table type for one of the extensions in 
-                    the FITS file. Allowed values are 'BinTableHDU' and 
-                    'TableHDU' for binary ascii tables respectively. Default is
-                    'BinTableHDU'.
-
-        overwrite   [boolean] True indicates overwrite even if a file already 
-                    exists. Default = False (does not overwrite)
-
-        verbose     [boolean] If True (default), prints diagnostic and progress
-                    messages. If False, suppress printing such messages.
-        ----------------------------------------------------------------------------
-        """
-
-        try:
-            antfile
-        except NameError:
-            raise NameError('No filename provided. Aborting Antenna.save().')
-
-        filename = antfile + '.' + self.label + '.fits'
-
-        if verbose:
-            print '\nSaving information about antenna {0}...'.format(self.label)
-            
-        hdulist = []
-        hdulist += [fits.PrimaryHDU()]
-        hdulist[0].header['label'] = (self.label, 'Antenna label')
-        hdulist[0].header['latitude'] = (self.latitude, 'Latitude of Antenna')
-        hdulist[0].header['East'] = (self.location.x, 'Location of Antenna along local EAST')
-        hdulist[0].header['North'] = (self.location.y, 'Location of Antenna along local NORTH')
-        hdulist[0].header['Up'] = (self.location.z, 'Location of Antenna along local UP')
-        hdulist[0].header['f0'] = (self.f0, 'Center frequency (Hz)')
-        hdulist[0].header['tobs'] = (self.timestamp, 'Timestamp associated with observation.')
-        hdulist[0].header.set('EXTNAME', 'Antenna ({0})'.format(self.label))
-
-        if verbose:
-            print '\tCreated a primary HDU.'
-
-        cols = []
-        cols += [fits.Column(name='time_sequence', format='D', array=self.t)]
-        cols += [fits.Column(name='frequency', format='D', array=self.f)]
-        columns = fits.ColDefs(cols, tbtype=tabtype)
-        tbhdu = fits.new_table(columns)
-        tbhdu.header.set('EXTNAME', 'GENERAL INFO')
-        hdulist += [tbhdu]
-
-        if (pol is None) or (pol == 'P1'):
-            if verbose:
-                print '\tWorking on polarization P1...'
-                print '\t\tWorking on weights information...'
-            cols = []
-            for i in range(len(self.wts_P1)):
-                if verbose:
-                    print '\t\t\tProcessing channel # {0}'.format(i)
-                cols += [fits.Column(name='wtspos[{0:0d}]'.format(i), format='2D()', array=self.wtspos_P1[0])]
-                cols += [fits.Column(name='wts[{0:0d}]'.format(i), format='M()', array=self.wts_P1[0])]
-            columns = fits.ColDefs(cols, tbtype=tabtype)
-            tbhdu = fits.new_table(columns)
-            tbhdu.header.set('EXTNAME', 'wtsinfo_P1')
-            tbhdu.header.set('X_BLC', self.blc_P1[0,0])
-            tbhdu.header.set('Y_BLC', self.blc_P1[0,1])
-            tbhdu.header.set('X_TRC', self.trc_P1[0,0])
-            tbhdu.header.set('Y_TRC', self.trc_P1[0,1])
-            hdulist += [tbhdu]
-            if verbose:
-                print '\t\tCreated separate extension HDU {0} with weights information'.format(tbhdu.header['EXTNAME'])
-                print '\t\tWorking on gridding information...'
-
-            cols = []
-            for i in range(len(self.f)):
-                if verbose:
-                    print '\t\t\tProcessing channel # {0}'.format(i)
-                cols += [fits.Column(name='gridxy[{0:0d}]'.format(i), format='2D()', array=NP.asarray(self.gridinfo_P1[i]['gridxy_ind']))]
-                cols += [fits.Column(name='illumination[{0:0d}]'.format(i), format='M()', array=self.gridinfo_P1[i]['illumination'])]
-                cols += [fits.Column(name='Ef[{0:0d}]'.format(i), format='M()', array=self.gridinfo_P1[i]['Ef'])]
-            columns = fits.ColDefs(cols, tbtype=tabtype)
-            tbhdu = fits.new_table(columns)
-            tbhdu.header.set('EXTNAME', 'gridinfo_P1')
-            hdulist += [tbhdu]
-            if verbose:
-                print '\t\tCreated separate extension HDU {0} with weights information'.format(tbhdu.header['EXTNAME'])
-
-        if (pol is None) or (pol == 'P2'):
-            if verbose:
-                print '\tWorking on polarization P2...'
-                print '\t\tWorking on weights information...'
-            cols = []
-            for i in range(len(self.wts_P2)):
-                if verbose:
-                    print '\t\t\tProcessing channel # {0}'.format(i)
-                cols += [fits.Column(name='wtspos[{0:0d}]'.format(i), format='2D()', array=self.wtspos_P2[0])]
-                cols += [fits.Column(name='wts[{0:0d}]'.format(i), format='M()', array=self.wts_P2[0])]
-            columns = fits.ColDefs(cols, tbtype=tabtype)
-            tbhdu = fits.new_table(columns)
-            tbhdu.header.set('EXTNAME', 'wtsinfo_P2')
-            tbhdu.header.set('X_BLC', self.blc_P2[0,0])
-            tbhdu.header.set('Y_BLC', self.blc_P2[0,1])
-            tbhdu.header.set('X_TRC', self.trc_P2[0,0])
-            tbhdu.header.set('Y_TRC', self.trc_P2[0,1])
-            hdulist += [tbhdu]
-            if verbose:
-                print '\t\tCreated separate extension HDU {0} with weights information'.format(tbhdu.header['EXTNAME'])
-                print '\t\tWorking on gridding information...'
-
-            cols = []
-            for i in range(len(self.f)):
-                if verbose:
-                    print '\t\t\tProcessing channel # {0}'.format(i)
-                cols += [fits.Column(name='gridxy[{0:0d}]'.format(i), format='2D()', array=NP.asarray(self.gridinfo_P2[i]['gridxy_ind']))]
-                cols += [fits.Column(name='illumination[{0:0d}]'.format(i), format='M()', array=self.gridinfo_P2[i]['illumination'])]
-                cols += [fits.Column(name='Ef[{0:0d}]'.format(i), format='M()', array=self.gridinfo_P2[i]['Ef'])]
-            columns = fits.ColDefs(cols, tbtype=tabtype)
-            tbhdu = fits.new_table(columns)
-            tbhdu.header.set('EXTNAME', 'gridinfo_P2')
-            hdulist += [tbhdu]
-            if verbose:
-                print '\t\tCreated separate extension HDU {0} with weights information'.format(tbhdu.header['EXTNAME'])
-
-        hdu = fits.HDUList(hdulist)
-        hdu.writeto(filename, clobber=overwrite)
-
-        if verbose:
-            print '\tNow writing FITS file to disk:\n\t\t{0}'.format(filename)
-            print '\tData for antenna {0} written successfully to FITS file on disk:\n\t\t{1}\n'.format(self.label, filename)
-
-#####################################################################  
-
-class AntennaArray_old:
-
-    """
-    ----------------------------------------------------------------------------
-    Class to manage collective information on a group of antennas.
-
-    Attributes:
-
-    antennas:    [Dictionary] Dictionary consisting of keys which hold instances
-                 of class Antenna. The keys themselves are identical to the
-                 label attributes of the antenna instances they hold.
-
-    ants_blc_P1  [2-element Numpy array] The coordinates of the bottom left 
-                 corner of the array of antennas for polarization P1.
-
-    ants_trc_P1  [2-element Numpy array] The coordinates of the top right 
-                 corner of the array of antennas for polarization P1.
-
-    ants_blc_P2  [2-element Numpy array] The coordinates of the bottom left 
-                 corner of the array of antennas for polarization P2.
-
-    ants_trc_P2  [2-element Numpy array] The coordinates of the top right 
-                 corner of the array of antennas for polarization P2.
-
-    grid_blc_P1  [2-element Numpy array] The coordinates of the bottom left 
-                 corner of the grid constructed for the array of antennas
-                 for polarization P1. This may differ from ants_blc_P1 due to
-                 any extra padding during the gridding process.
-
-    grid_trc_P1  [2-element Numpy array] The coordinates of the top right 
-                 corner of the grid constructed for the array of antennas
-                 for polarization P1. This may differ from ants_trc_P1 due to
-                 any extra padding during the gridding process.
-
-    grid_blc_P2  [2-element Numpy array] The coordinates of the bottom left 
-                 corner of the grid constructed for the array of antennas
-                 for polarization P2. This may differ from ants_blc_P2 due to
-                 any extra padding during the gridding process.
-
-    grid_trc_P2  [2-element Numpy array] The coordinates of the top right 
-                 corner of the grid constructed for the array of antennas
-                 for polarization P2. This may differ from ants_trc_P2 due to
-                 any extra padding during the gridding process.
-
-    grid_ready_P1 
-                 [boolean] True if the grid has been created for P1 polarization,
-                 False otherwise
-
-    grid_ready_P2
-                 [boolean] True if the grid has been created for P2 polarization,
-                 False otherwise
-
-    gridx_P1     [Numpy array] x-locations of the grid lattice for P1
-                 polarization
-
-    gridy_P1     [Numpy array] y-locations of the grid lattice for P1
-                 polarization
-
-    gridx_P2     [Numpy array] x-locations of the grid lattice for P2
-                 polarization
-
-    gridy_P2     [Numpy array] y-locations of the grid lattice for P2
-                 polarization
-
-    grid_illuminaton_P1
-                 [Numpy array] Electric field illumination for P1 polarization 
-                 on the grid. Could be complex. Same size as the grid
-
-    grid_illuminaton_P2
-                 [Numpy array] Electric field illumination for P2 polarization 
-                 on the grid. Could be complex. Same size as the grid
-
-    grid_Ef_P1   [Numpy array] Complex Electric field of polarization P1 
-                 projected on the grid. 
-
-    grid_Ef_P2   [Numpy array] Complex Electric field of polarization P2 
-                 projected on the grid. 
-
-    f            [Numpy array] Frequency channels (in Hz)
-
-    f0           [Scalar] Center frequency of the observing band (in Hz)
-
-    Member Functions:
-
-    __init__()        Initializes an instance of class AntennaArray which manages
-                      information about an array of antennas.
-                      
-    __str__()         Prints a summary of current attributes
-                      
-    __add__()         Operator overloading for adding antenna(s)
-                      
-    __radd__()        Operator overloading for adding antenna(s)
-                      
-    __sub__()         Operator overloading for removing antenna(s)
-                      
-    add_antennas()    Routine to add antenna(s) to the antenna array instance. 
-                      A wrapper for operator overloading __add__() and __radd__()
-                      
-    remove_antennas() Routine to remove antenna(s) from the antenna array 
-                      instance. A wrapper for operator overloading __sub__()
-                      
-    grid()            Routine to produce a grid based on the antenna array 
-
-    grid_convolve()   Routine to project the electric field illumination pattern
-                      and the electric fields on the grid. It can operate on the
-                      entire antenna array or incrementally project the electric
-                      fields and illumination patterns from specific antennas on
-                      to an already existing grid.
-
-    grid_unconvolve() Routine to de-project the electric field illumination 
-                      pattern and the electric fields on the grid. It can operate 
-                      on the entire antenna array or incrementally de-project the 
-                      electric fields and illumination patterns from specific 
-                      antennas from an already existing grid.
-
-    update():         Updates the antenna array instance with newer attribute
-                      values
-                      
-    save():           Saves the antenna array information to disk. 
-
-    Read the member function docstrings for details.
-    ----------------------------------------------------------------------------
-    """
-
-    def __init__(self):
-
-        """
-        ------------------------------------------------------------------------
-        Initialize the AntennaArray Class which manages information about an 
-        array of antennas.
-
-        Class attributes initialized are:
-        antennas, ants_blc_P1, ants_trc_P1, ants_blc_P2, ant_trc_P2, gridx_P1,
-        gridy_P1, gridx_P2, gridy_P2, grid_illumination_P1, 
-        grid_illumination_P2, grid_Ef_P1, grid_Ef_P2, f, f0
-     
-        Read docstring of class AntennaArray for details on these attributes.
-        ------------------------------------------------------------------------
-        """
-
-        self.antennas = {}
-        self.ants_blc_P1 = NP.zeros(2).reshape(1,-1)
-        self.ants_trc_P1 = NP.zeros(2).reshape(1,-1)
-        self.ants_blc_P2 = NP.zeros(2).reshape(1,-1)
-        self.ants_trc_P2 = NP.zeros(2).reshape(1,-1)
-        self.grid_blc_P1 = NP.zeros(2).reshape(1,-1)
-        self.grid_trc_P1 = NP.zeros(2).reshape(1,-1)
-        self.grid_blc_P2 = NP.zeros(2).reshape(1,-1)
-        self.grid_trc_P2 = NP.zeros(2).reshape(1,-1)
-        self.gridx_P1, self.gridy_P1 = None, None
-        self.gridx_P2, self.gridy_P2 = None, None
-        self.grid_ready_P1, self.grid_ready_P2 = False, False
-        self.grid_illumination_P1 = None
-        self.grid_illumination_P2 = None
-        self.grid_Ef_P1 = None
-        self.grid_Ef_P2 = None
-        self.f = None
-        self.f0 = None
-        self.t = None
-        self.timestamp = None
-        
-    ################################################################################# 
-
-    def __str__(self):
-        printstr = '\n-----------------------------------------------------------------'
-        printstr += '\n Instance of class "{0}" in module "{1}".\n Holds the following "Antenna" class instances with labels:\n '.format(self.__class__.__name__, self.__module__)
-        printstr += '  '.join(sorted(self.antennas.keys()))
-        printstr += '\n Antenna array bounds: blc = [{0[0]}, {0[1]}],\n                       trc = [{1[0]}, {1[1]}]'.format(self.ants_blc_P1.ravel(), self.ants_trc_P1.ravel())
-        printstr += '\n Grid bounds: blc = [{0[0]}, {0[1]}],\n              trc = [{1[0]}, {1[1]}]'.format(self.grid_blc_P1.ravel(), self.grid_trc_P1.ravel())
-        printstr += '\n-----------------------------------------------------------------'
-        return printstr
-
-    ################################################################################# 
-
-    def __add__(self, others):
-
-        """
-        ----------------------------------------------------------------------------
-        Operator overloading for adding antenna(s)
-    
-        Inputs:
-    
-        others     [Instance of class AntennaArray, dictionary holding instance(s)
-                   of class Antenna, list of instances of class Antenna, or a single
-                   instance of class Antenna] If a dictionary is provided, the keys
-                   should be the antenna labels and the values should be instances 
-                   of class Antenna. If a list is provided, it should be a list of 
-                   valid instances of class Antenna. These instance(s) of class
-                   Antenna will be added to the existing instance of AntennaArray
-                   class.
-        ----------------------------------------------------------------------------
-        """
-
-        retval = self
-        if isinstance(others, AntennaArray):
-            # for k,v in others.antennas.items():
-            for k,v in others.antennas.iteritems():
-                if k in retval.antennas:
-                    print "Antenna {0} already included in the list of antennas.".format(k)
-                    print "For updating, use the update() method. Ignoring antenna {0}".format(k)
-                else:
-                    retval.antennas[k] = v
-                    print 'Antenna "{0}" added to the list of antennas.'.format(k)
-        elif isinstance(others, dict):
-            # for item in others.values():
-            for item in others.itervalues():
-                if isinstance(item, Antenna):
-                    if item.label in retval.antennas:
-                        print "Antenna {0} already included in the list of antennas.".format(item.label)
-                        print "For updating, use the update() method. Ignoring antenna {0}".format(item.label)
-                    else:
-                        retval.antennas[item.label] = item
-                        print 'Antenna "{0}" added to the list of antennas.'.format(item.label)
-        elif isinstance(others, list):
-            for i in range(len(others)):
-                if isinstance(others[i], Antenna):
-                    if others[i].label in retval.antennas:
-                        print "Antenna {0} already included in the list of antennas.".format(others[i].label)
-                        print "For updating, use the update() method. Ignoring antenna {0}".format(others[i].label)
-                    else:
-                        retval.antennas[others[i].label] = others[i]
-                        print 'Antenna "{0}" added to the list of antennas.'.format(others[i].label)
-                else:
-                    print 'Element \# {0} is not an instance of class Antenna.'.format(i)
-        elif isinstance(others, Antenna):
-            if others.label in retval.antennas:
-                print "Antenna {0} already included in the list of antennas.".format(others.label)
-                print "For updating, use the update() method. Ignoring antenna {0}".format(others.label)
-            else:
-                retval.antennas[others.label] = others
-                print 'Antenna "{0}" added to the list of antennas.'.format(others.label)
-        else:
-            print 'Input(s) is/are not instance(s) of class Antenna.'
-
-        return retval
-
-    ################################################################################# 
-
-    def __radd__(self, others):
-
-        """
-        ----------------------------------------------------------------------------
-        Operator overloading for adding antenna(s)
-    
-        Inputs:
-    
-        others     [Instance of class AntennaArray, dictionary holding instance(s)
-                   of class Antenna, list of instances of class Antenna, or a single
-                   instance of class Antenna] If a dictionary is provided, the keys
-                   should be the antenna labels and the values should be instances 
-                   of class Antenna. If a list is provided, it should be a list of 
-                   valid instances of class Antenna. These instance(s) of class
-                   Antenna will be added to the existing instance of AntennaArray
-                   class.
-        ----------------------------------------------------------------------------
-        """
-
-        return self.__add__(others)
-
-    ################################################################################# 
-
-    def __sub__(self, others):
-        """
-        ----------------------------------------------------------------------------
-        Operator overloading for removing antenna(s)
-    
-        Inputs:
-    
-        others     [Instance of class AntennaArray, dictionary holding instance(s)
-                   of class Antenna, list of instances of class Antenna, list of
-                   strings containing antenna labels or a single instance of class
-                   Antenna] If a dictionary is provided, the keys should be the
-                   antenna labels and the values should be instances of class
-                   Antenna. If a list is provided, it should be a list of valid
-                   instances of class Antenna. These instance(s) of class Antenna
-                   will be removed from the existing instance of AntennaArray class.
-        ----------------------------------------------------------------------------
-        """
-
-        retval = self
-        if isinstance(others, dict):
-            for item in others.values():
-                if isinstance(item, Antenna):
-                    if item.label not in retval.antennas:
-                        print "Antenna {0} does not exist in the list of antennas.".format(item.label)
-                    else:
-                        del retval.antennas[item.label]
-                        print 'Antenna "{0}" removed from the list of antennas.'.format(item.label)
-        elif isinstance(others, list):
-            for i in range(0,len(others)):
-                if isinstance(others[i], str):
-                    if others[i] in retval.antennas:
-                        del retval.antennas[others[i]]
-                        print 'Antenna {0} removed from the list of antennas.'.format(others[i])
-                elif isinstance(others[i], Antenna):
-                    if others[i].label in retval.antennas:
-                        del retval.antennas[others[i].label]
-                        print 'Antenna {0} removed from the list of antennas.'.format(others[i].label)
-                    else:
-                        print "Antenna {0} does not exist in the list of antennas.".format(others[i].label)
-                else:
-                    print 'Element \# {0} has no matches in the list of antennas.'.format(i)                        
-        elif others in retval.antennas:
-            del retval.antennas[others]
-            print 'Antenna "{0}" removed from the list of antennas.'.format(others)
-        elif isinstance(others, Antenna):
-            if others.label in retval.antennas:
-                del retval.antennas[others.label]
-                print 'Antenna "{0}" removed from the list of antennas.'.format(others.label)
-            else:
-                print "Antenna {0} does not exist in the list of antennas.".format(others.label)
-        else:
-            print 'No matches found in existing list of antennas.'
-
-        return retval
-
-    ################################################################################# 
-
-    def add_antennas(self, A=None):
-
-        """
-        ----------------------------------------------------------------------------
-        Routine to add antenna(s) to the antenna array instance. A wrapper for
-        operator overloading __add__() and __radd__()
-    
-        Inputs:
-    
-        A          [Instance of class AntennaArray, dictionary holding instance(s)
-                   of class Antenna, list of instances of class Antenna, or a single
-                   instance of class Antenna] If a dictionary is provided, the keys
-                   should be the antenna labels and the values should be instances 
-                   of class Antenna. If a list is provided, it should be a list of 
-                   valid instances of class Antenna. These instance(s) of class
-                   Antenna will be added to the existing instance of AntennaArray
-                   class.
-        ----------------------------------------------------------------------------
-        """
-
-        if A is None:
-            print 'No antenna(s) supplied.'
-        elif isinstance(A, (list, Antenna)):
-            self = self.__add__(A)
-        else:
-            print 'Input(s) is/are not instance(s) of class Antenna.'
-
-    ################################################################################# 
-
-    def remove_antennas(self, A=None):
-
-        """
-        ----------------------------------------------------------------------------
-        Routine to remove antenna(s) from the antenna array instance. A wrapper for
-        operator overloading __sub__()
-    
-        Inputs:
-    
-        A          [Instance of class AntennaArray, dictionary holding instance(s)
-                   of class Antenna, list of instances of class Antenna, or a single
-                   instance of class Antenna] If a dictionary is provided, the keys
-                   should be the antenna labels and the values should be instances 
-                   of class Antenna. If a list is provided, it should be a list of 
-                   valid instances of class Antenna. These instance(s) of class
-                   Antenna will be removed from the existing instance of AntennaArray
-                   class.
-        ----------------------------------------------------------------------------
-        """
-
-        if A is None:
-            print 'No antenna specified for removal.'
-        else:
-            self = self.__sub__(A)
-
-    ################################################################################# 
-
-    def antenna_positions(self, sort=False):
-        
-        """
-        ----------------------------------------------------------------------------
-        Routine to return the antenna label and position information (sorted by
-        antenna label if specified)
-
-        Keyword Inputs:
-
-        sort     [boolean] If True, returned antenna information is sorted by
-                 antenna labels. Default = False.
-
-        Output:
-
-        outdict  [dictionary] Output consists of a dictionary with the following 
-                 keys and information:
-                 'antennas': Contains a numpy array of strings of antenna labels
-                 'positions': positions of antennas
-
-                 If input parameter sort is set to True, the antenna labels and 
-                 positions are sorted by antenna labels.
-        ----------------------------------------------------------------------------
-        """
-
-        if not isinstance(sort, bool):
-            raise TypeError('sort keyword has to be a Boolean value.')
-
-        if sort:
-            xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in sorted(self.antennas.keys())])
-            labels = sorted(self.antennas.keys())
-        else:
-            xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in self.antennas.keys()])
-            labels = self.antennas.keys()
-
-        outdict = {}
-        outdict['antennas'] = labels
-        outdict['positions'] = xyz
-
-        return outdict
-
-    ################################################################################# 
-
-    def grid(self, uvspacing=0.5, xypad=None, pow2=True, pol=None):
-
-        """
-        ----------------------------------------------------------------------------
-        Routine to produce a grid based on the antenna array 
-
-        Inputs:
-
-        uvspacing   [Scalar] Positive value indicating the maximum uv-spacing
-                    desirable at the lowest wavelength (max frequency). Default = 0.5
-
-        xypad       [List] Padding to be applied around the antenna locations before
-                    forming a grid. List elements should be positive. If it is a
-                    one-element list, the element is applicable to both x and y axes.
-                    If list contains three or more elements, only the first two
-                    elements are considered one for each axis. Default = None.
-
-        pow2        [Boolean] If set to True, the grid is forced to have a size a 
-                    next power of 2 relative to the actual sie required. If False,
-                    gridding is done with the appropriate size as determined by
-                    uvspacing. Default = True.
-
-        pol         [String] The polarization to be gridded. Can be set to 'P1' or
-                    'P2'. If set to None, gridding for both 'P1' and 'P2' is
-                    performed. 
-        ----------------------------------------------------------------------------
-        """
-
-        if self.f is None:
-            self.f = self.antennas.itervalues().next().f
-
-        if self.f0 is None:
-            self.f0 = self.antennas.itervalues().next().f0
-
-        if self.timestamp is None:
-            self.timestamp = self.antennas.itervalues().next().timestamp
-
-        wavelength = FCNST.c / self.f
-        min_lambda = NP.min(NP.abs(wavelength))
-
-        # Change itervalues() to values() when porting to Python 3.x
-        # May have to change *blc and *trc with zip(*blc) and zip(*trc) when using Python 3.x
-
-        if (pol is None) or (pol == 'P1'):
-            blc_P1 = [[self.antennas[label].blc_P1[0,0], self.antennas[label].blc_P1[0,1]] for label in self.antennas if not self.antennas[label].pol.flag_P1]
-            trc_P1 = [[self.antennas[label].trc_P1[0,0], self.antennas[label].trc_P1[0,1]] for label in self.antennas if not self.antennas[label].pol.flag_P1]
-
-            self.ants_blc_P1 = NP.asarray(map(min, *blc_P1))
-            self.ants_trc_P1 = NP.asarray(map(max, *trc_P1))
-
-            self.gridx_P1, self.gridy_P1 = GRD.grid_2d([(self.ants_blc_P1[0], self.ants_trc_P1[0]),(self.ants_blc_P1[1], self.ants_trc_P1[1])], pad=xypad, spacing=uvspacing*min_lambda, pow2=True)
-
-            self.grid_blc_P1 = NP.asarray([NP.amin(self.gridx_P1[0,:]), NP.amin(self.gridy_P1[:,0])])
-            self.grid_trc_P1 = NP.asarray([NP.amax(self.gridx_P1[0,:]), NP.amax(self.gridy_P1[:,0])])
-
-            self.grid_ready_P1 = True
-
-        if (pol is None) or (pol == 'P2'):
-            blc_P2 = [[self.antennas[label].blc_P2[0,0], self.antennas[label].blc_P2[0,1]] for label in self.antennas if not self.antennas[label].pol.flag_P2]
-            trc_P2 = [[self.antennas[label].trc_P2[0,0], self.antennas[label].trc_P2[0,1]] for label in self.antennas if not self.antennas[label].pol.flag_P2]
-
-            self.ants_blc_P2 = NP.asarray(map(min, *blc_P2))
-            self.ants_trc_P2 = NP.asarray(map(max, *trc_P2))
-
-            self.gridx_P2, self.gridy_P2 = GRD.grid_2d([(self.ants_blc_P2[0], self.ants_trc_P2[0]),(self.ants_blc_P2[1], self.ants_trc_P2[1])], pad=xypad, spacing=uvspacing*min_lambda, pow2=True)
-
-            self.grid_blc_P2 = NP.asarray([NP.amin(self.gridx_P2[0,:]), NP.amin(self.gridy_P2[:,0])])
-            self.grid_trc_P2 = NP.asarray([NP.amax(self.gridx_P2[0,:]), NP.amax(self.gridy_P2[:,0])])
-
-            self.grid_ready_P2 = True
-
-    #################################################################################
-
-    def grid_convolve(self, pol=None, ants=None, unconvolve_existing=False,
-                      normalize=False, method='NN', distNN=NP.inf, tol=None,
-                      maxmatch=None): 
-
-        """
-        ----------------------------------------------------------------------------
-        Routine to project the electric field illumination pattern and the electric
-        fields on the grid. It can operate on the entire antenna array or
-        incrementally project the electric fields and illumination patterns from
-        specific antennas on to an already existing grid.
-
-        Inputs:
-
-        pol         [String] The polarization to be gridded. Can be set to 'P1' or
-                    'P2'. If set to None, gridding for both 'P1' and 'P2' is
-                    performed. Default = None
-
-        ants        [instance of class AntennaArray, single instance or list of
-                    instances of class Antenna, or a dictionary holding instances of
-                    of class Antenna] If a dictionary is provided, the keys
-                    should be the antenna labels and the values should be instances 
-                    of class Antenna. If a list is provided, it should be a list of 
-                    valid instances of class Antenna. These instance(s) of class
-                    Antenna will be merged to the existing grid contained in the
-                    instance of AntennaArray class. If ants is not provided (set to
-                    None), the gridding operations will be performed on the entire
-                    set of antennas contained in the instance of class AntennaArray.
-                    Default = None.
-
-        unconvolve_existing
-                   [Boolean] Default = False. If set to True, the effects of
-                   gridding convolution contributed by the antenna(s) specified will
-                   be undone before updating the antenna measurements on the grid,
-                   if the antenna(s) is/are already found to in the set of antennas
-                   held by the instance of AntennaArray. If False and if one or more
-                   antenna instances specified are already found to be held in the
-                   instance of class AntennaArray, the code will stop raising an
-                   error indicating the gridding oepration cannot proceed. 
-
-        normalize  [Boolean] Default = False. If set to True, the gridded weights
-                   are divided by the sum of weights so that the gridded weights add
-                   up to unity. 
-
-        method     [string] The gridding method to be used in applying the antenna
-                   weights on to the antenna array grid. Accepted values are 'NN'
-                   (nearest neighbour - default), 'CS' (cubic spline), or 'BL'
-                   (Bi-linear). In case of applying grid weights by 'NN' method, an
-                   optional distance upper bound for the nearest neighbour can be 
-                   provided in the parameter distNN to prune the search and make it
-                   efficient
-
-        distNN     [scalar] A positive value indicating the upper bound on distance
-                   to the nearest neighbour in the gridding process. It has units of
-                   distance, the same units as the antenna attribute location and 
-                   antenna array attribute gridx_P1 and gridy_P1. Default is NP.inf
-                   (infinite distance). It will be internally converted to have same
-                   units as antenna attributes wtspos_P1 and wtspos_P2 (units in 
-                   number of wavelengths)
-
-        maxmatch   [scalar] A positive value indicating maximum number of input 
-                   locations in the antenna grid to be assigned. Default = None. 
-                   If set to None, all the antenna array grid elements specified 
-                   are assigned values for each antenna. For instance, to have only 
-                   one antenna array grid element to be populated per antenna, use
-                   maxmatch=1. 
-
-        tol        [scalar] If set, only lookup data with abs(val) > tol will be 
-                   considered for nearest neighbour lookup. Default = None implies 
-                   all lookup values will be considered for nearest neighbour 
-                   determination. tol is to be interpreted as a minimum value 
-                   considered as significant in the lookup table. 
-        ----------------------------------------------------------------------------
-        """
-
-        eps = 1.0e-10
-
-        if (pol is None) or (pol == 'P1'):
-
-            if not self.grid_ready_P1: # Need to create a grid since it could have changed with updates
-                self.grid(pol='P1') 
-
-            if ants is not None:
-
-                if isinstance(ants, Antenna):
-                    ants = [ants]
-
-                if isinstance(ants, (dict, AntennaArray)):
-                    # Check if these antennas are new or old and compatible
-                    for key in ants: 
-                        if isinstance(ants[key], Antenna): # required if ants is a dictionary and not instance of AntennaArray
-                            if key in self.antennas:
-                                if unconvolve_existing: # Effects on the grid of antennas already existing must be removed 
-                                    if self.antennas[key].gridinfo_P1: # if gridding info is not empty
-                                        for i in range(len(self.f)):
-                                            self.grid_unconvolve(ants[key].label)
-                                else:
-                                    raise KeyError('Antenna {0} already found to exist in the dictionary of antennas but cannot proceed grid_convolve() without unconvolving first.'.format(ants[key].label)) 
-                            
-                        else:
-                            del ants[key] # remove the dictionary element since it is not an Antenna instance
-
-                    for key in ants:
-                        if not ants[key].pol.flag_P1:
-                            for i in range(len(self.f)):
-                                if method == 'NN':
-                                    if ants[key].wtspos_P1_scale is None: 
-                                        reflocs = ants[key].wtspos_P1[i] + (self.f[i]/FCNST.c) * NP.asarray([ants[key].location.x, ants[key].location.y]).reshape(1,-1)
-                                        inplocs = (self.f[i]/FCNST.c) * NP.hstack((self.gridx_P1.reshape(-1,1), self.gridy_P1.reshape(-1,1)))
-                                        ibind, nnval = LKP.lookup_1NN_old(reflocs, ants[key].wts_P1[i], inplocs,
-                                                                      distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                                                      remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                        # ibind, nnval = LKP.lookup(ants[key].wtspos_P1[i][:,0] + ants[key].location.x * (self.f[i]/FCNST.c),
-                                        #                           ants[key].wtspos_P1[i][:,1] + ants[key].location.y * (self.f[i]/FCNST.c),
-                                        #                           ants[key].wts_P1[i], self.gridx_P1*self.f[i]/FCNST.c,
-                                        #                           self.gridy_P1*self.f[i]/FCNST.c, distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                        #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                        roi_ind = NP.unravel_index(ibind, self.gridx_P1.shape)
-                                        if normalize:
-                                            nnval /= NP.sum(nnval)
-                                    elif ants[key].wtspos_P1_scale == 'scale':
-                                        if i == 0: # Determine some parameters only for zeroth channel if scaling is set
-                                            reflocs = ants[key].wtspos_P1[0] + (self.f[0]/FCNST.c) * NP.asarray([ants[key].location.x, ants[key].location.y]).reshape(1,-1)
-                                            inplocs = (self.f[0]/FCNST.c) * NP.hstack((self.gridx_P1.reshape(-1,1), self.gridy_P1.reshape(-1,1)))
-                                            ibind, nnval = LKP.lookup_1NN_old(reflocs, ants[key].wts_P1[0], inplocs,
-                                                                          distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                                                          remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                            # ibind, nnval = LKP.lookup(ants[key].wtspos_P1[0][:,0]+ants[key].location.x*(self.f[0]/FCNST.c),
-                                            #                           ants[key].wtspos_P1[0][:,1]+ants[key].location.y*(self.f[0]/FCNST.c),
-                                            #                           ants[key].wts_P1[0], self.gridx_P1*self.f[0]/FCNST.c,
-                                            #                           self.gridy_P1*self.f[0]/FCNST.c, distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                            #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                            roi_ind = NP.unravel_index(ibind, self.gridx_P1.shape)
-                                            if normalize:
-                                                nnval /= NP.sum(nnval)
-                                    else:
-                                        raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-
-                                    self.grid_illumination_P1[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += nnval
-                                    self.grid_Ef_P1[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += ants[key].pol.Ef_P1[i] * nnval
-                                else:
-                                    if ants[key].wtspos_P1_scale is None: 
-                                        grid_illumination_P1 = GRD.conv_grid2d(ants[key].location.x * (self.f[i]/FCNST.c),
-                                                                               ants[key].location.y * (self.f[i]/FCNST.c),
-                                                                               ants[key].wtspos_P1[i][:,0],
-                                                                               ants[key].wtspos_P1[i][:,1],
-                                                                               ants[key].wts_P1[i],
-                                                                               self.gridx_P1 * (self.f[i]/FCNST.c),
-                                                                               self.gridy_P1 * (self.f[i]/FCNST.c),
-                                                                               method=method)
-                                        grid_illumination_P1 = grid_illumination_P1.reshape(self.gridx_P1.shape)
-                                        if normalize:
-                                            grid_illumination_P1 = grid_illumination_P1 / NP.sum(grid_illumination_P1)
-                                        roi_ind = NP.where(NP.abs(grid_illumination_P1) >= eps)
-                                    elif ants[key].wtspos_P1_scale == 'scale':
-                                        if i == 0: # Determine some parameters only for zeroth channel if scaling is set
-                                            grid_illumination_P1 = GRD.conv_grid2d(ants[key].location.x * (self.f[0]/FCNST.c),
-                                                                                   ants[key].location.y * (self.f[0]/FCNST.c),
-                                                                                   ants[key].wtspos_P1[0][:,0],
-                                                                                   ants[key].wtspos_P1[0][:,1],
-                                                                                   ants[key].wts_P1[0],
-                                                                                   self.gridx_P1 * (self.f[0]/FCNST.c),
-                                                                                   self.gridy_P1 * (self.f[0]/FCNST.c),
-                                                                                   method=method)
-                                            grid_illumination_P1 = grid_illumination_P1.reshape(self.gridx_P1.shape)
-                                            if normalize:
-                                                grid_illumination_P1 = grid_illumination_P1 / NP.sum(grid_illumination_P1)
-                                            roi_ind = NP.where(NP.abs(grid_illumination_P1) >= eps)
-                                    else:
-                                        raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-
-                                    self.grid_illumination_P1[:,:,i] += grid_illumination_P1
-                                    self.grid_Ef_P1[:,:,i] += ants[key].pol.Ef_P1[i] * grid_illumination_P1
-
-                                if key in self.antennas:
-                                    if i not in self.antennas[key].gridinfo_P1:
-                                        self.antennas[key].gridinfo_P1 = {} # Create an empty dictionary for each channel to hold grid info
-                                    self.antennas[key].gridinfo_P1[i]['f'] = self.f[i]
-                                    self.antennas[key].gridinfo_P1[i]['flag'] = False
-                                    self.antennas[key].gridinfo_P1[i]['gridxy_ind'] = zip(*roi_ind)
-                                    self.antennas[key].wtspos_P1_scale = ants[key].wtspos_P1_scale
-                                    if method == 'NN':
-                                        self.antennas[key].gridinfo_P1[i]['illumination'] = nnval
-                                        self.antennas[key].gridinfo_P1[i]['Ef'] = ants[key].pol.Ef_P1[i] * nnval
-                                    else:
-                                        self.antennas[key].gridinfo_P1[i]['illumination'] = grid_illumination_P1[roi_ind]
-                                        self.antennas[key].gridinfo_P1[i]['Ef'] = ants[key].pol.Ef_P1[i] * grid_illumination_P1[roi_ind]
-
-                elif isinstance(ants, list):
-                    # Check if these antennas are new or old and compatible
-                    for key in range(len(ants)): 
-                        if isinstance(ants[key], Antenna): # required if ants is a dictionary and not instance of AntennaArray
-                            if ants[key].label in self.antennas:
-                                if unconvolve_existing: # Effects on the grid of antennas already existing must be removed 
-                                    if self.antennas[ants[key].label].gridinfo_P1: # if gridding info is not empty
-                                        for i in range(len(self.f)):
-                                            self.grid_unconvolve(ants[key].label)
-                                else:
-                                    raise KeyError('Antenna {0} already found to exist in the dictionary of antennas but cannot proceed grid_convolve() without unconvolving first.'.format(ants[key].label))
-                            
-                        else:
-                            del ants[key] # remove the dictionary element since it is not an Antenna instance
-
-                    for key in range(len(ants)):
-                        if not ants[key].pol.flag_P1:
-                            for i in range(len(self.f)):
-                                if method == 'NN':
-                                    if ants[key].wtspos_P1_scale is None: 
-                                        reflocs = ants[key].wtspos_P1[i] + (self.f[i]/FCNST.c) * NP.asarray([ants[key].location.x, ants[key].location.y]).reshape(1,-1)
-                                        inplocs = (self.f[i]/FCNST.c) * NP.hstack((self.gridx_P1.reshape(-1,1), self.gridy_P1.reshape(-1,1)))
-                                        ibind, nnval = LKP.lookup_1NN_old(reflocs, ants[key].wts_P1[i], inplocs,
-                                                                      distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                                                      remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-
-                                        # ibind, nnval = LKP.lookup(ants[key].wtspos_P1[i][:,0] + ants[key].location.x * (self.f[i]/FCNST.c),
-                                        #                           ants[key].wtspos_P1[i][:,1] + ants[key].location.y * (self.f[i]/FCNST.c),
-                                        #                           ants[key].wts_P1[i], self.gridx_P1*self.f[i]/FCNST.c,
-                                        #                           self.gridy_P1*self.f[i]/FCNST.c, distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                        #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                        roi_ind = NP.unravel_index(ibind, self.gridx_P1.shape)
-                                        if normalize:
-                                            nnval /= NP.sum(nnval)
-                                    elif ants[key].wtspos_P1_scale == 'scale':
-                                        if i == 0: # Determine some parameters only for zeroth channel if scaling is set
-                                            reflocs = ants[key].wtspos_P1[0] + (self.f[0]/FCNST.c) * NP.asarray([ants[key].location.x, ants[key].location.y]).reshape(1,-1)
-                                            inplocs = (self.f[0]/FCNST.c) * NP.hstack((self.gridx_P1.reshape(-1,1), self.gridy_P1.reshape(-1,1)))
-                                            ibind, nnval = LKP.lookup_1NN_old(reflocs, ants[key].wts_P1[0], inplocs,
-                                                                          distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                                                          remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-
-                                            # ibind, nnval = LKP.lookup(ants[key].wtspos_P1[0][:,0]+ants[key].location.x*(self.f[0]/FCNST.c),
-                                            #                           ants[key].wtspos_P1[0][:,1]+ants[key].location.y*(self.f[0]/FCNST.c),
-                                            #                           ants[key].wts_P1[0], self.gridx_P1*self.f[0]/FCNST.c,
-                                            #                           self.gridy_P1*self.f[0]/FCNST.c, distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                            #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                            roi_ind = NP.unravel_index(ibind, self.gridx_P1.shape)
-                                            if normalize:
-                                                nnval /= NP.sum(nnval)
-                                    else:
-                                        raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-
-                                    self.grid_illumination_P1[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += nnval
-                                    self.grid_Ef_P1[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += ants[key].pol.Ef_P1[i] * nnval
-                                else:
-                                    if ants[key].wtspos_P1_scale is None:
-                                        grid_illumination_P1 = GRD.conv_grid2d(ants[key].location.x * (self.f[i]/FCNST.c),
-                                                                               ants[key].location.y * (self.f[i]/FCNST.c),
-                                                                               ants[key].wtspos_P1[i][:,0],
-                                                                               ants[key].wtspos_P1[i][:,1],
-                                                                               ants[key].wts_P1[i],
-                                                                               self.gridx_P1 * (self.f[i]/FCNST.c),
-                                                                               self.gridy_P1 * (self.f[i]/FCNST.c),
-                                                                               method=method)
-                                        grid_illumination_P1 = grid_illumination_P1.reshape(self.gridx_P1.shape)
-                                        if normalize:
-                                            grid_illumination_P1 = grid_illumination_P1 / NP.sum(grid_illumination_P1)
-                                        roi_ind = NP.where(NP.abs(grid_illumination_P1) >= eps)
-                                    elif ants[key].wtspos_P1_scale == 'scale':
-                                        if i == 0: # Determine some parameters only for zeroth channel if scaling is set
-                                            grid_illumination_P1 = GRD.conv_grid2d(ants[key].location.x * (self.f[0]/FCNST.c),
-                                                                                   ants[key].location.y * (self.f[0]/FCNST.c),
-                                                                                   ants[key].wtspos_P1[0][:,0],
-                                                                                   ants[key].wtspos_P1[0][:,1],
-                                                                                   ants[key].wts_P1[0],
-                                                                                   self.gridx_P1 * (self.f[0]/FCNST.c),
-                                                                                   self.gridy_P1 * (self.f[0]/FCNST.c),
-                                                                                   method=method)
-                                            grid_illumination_P1 = grid_illumination_P1.reshape(self.gridx_P1.shape)
-                                            if normalize:
-                                                grid_illumination_P1 = grid_illumination_P1 / NP.sum(grid_illumination_P1)
-                                            roi_ind = NP.where(NP.abs(grid_illumination_P1) >= eps)
-                                    else:
-                                        raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-
-                                    self.grid_illumination_P1[:,:,i] += grid_illumination_P1
-                                    self.grid_Ef_P1[:,:,i] += ants[key].pol.Ef_P1[i] * grid_illumination_P1
-
-                                if ants[key].label in self.antennas:
-                                    if i not in self.antennas[key].gridinfo_P1:
-                                        self.antennas[key].gridinfo_P1 = {} # Create an empty dictionary for each channel to hold grid info
-                                    self.antennas[ants[key].label].gridinfo_P1[i]['f'] = self.f[i]
-                                    self.antennas[ants[key].label].gridinfo_P1[i]['flag'] = False
-                                    self.antennas[ants[key].label].gridinfo_P1[i]['gridxy_ind'] = zip(*roi_ind)
-                                    self.antennas[key].wtspos_P1_scale = ants[key].wtspos_P1_scale
-                                    if method == 'NN':
-                                        self.antennas[ants[key].label].gridinfo_P1[i]['illumination'] = nnval
-                                        self.antennas[ants[key].label].gridinfo_P1[i]['Ef'] = ants[key].pol.Ef_P1[i] * nnval
-                                    else:
-                                        self.antennas[ants[key].label].gridinfo_P1[i]['illumination'] = grid_illumination_P1[roi_ind]
-                                        self.antennas[ants[key].label].gridinfo_P1[i]['Ef'] = ants[key].pol.Ef_P1[i] * grid_illumination_P1[roi_ind] 
-                else:
-                    raise TypeError('ants must be an instance of AntennaArray, a dictionary of Antenna instances, a list of Antenna instances or an Antenna instance.')
-
-            else:
-
-                self.grid_illumination_P1 = NP.zeros((self.gridx_P1.shape[0],
-                                                      self.gridx_P1.shape[1],
-                                                      len(self.f)),
-                                                     dtype=NP.complex_)
-                self.grid_Ef_P1 = NP.zeros((self.gridx_P1.shape[0],
-                                            self.gridx_P1.shape[1],
-                                            len(self.f)), dtype=NP.complex_)
-
-                for key in self.antennas:
-                    if not self.antennas[key].pol.flag_P1:
-                        for i in range(len(self.f)):
-                            if method == 'NN':
-                                if self.antennas[key].wtspos_P1_scale is None: 
-                                    reflocs = self.antennas[key].wtspos_P1[i] + (self.f[i]/FCNST.c) * NP.asarray([self.antennas[key].location.x, self.antennas[key].location.y]).reshape(1,-1)
-                                    inplocs = (self.f[i]/FCNST.c) * NP.hstack((self.gridx_P1.reshape(-1,1), self.gridy_P1.reshape(-1,1)))
-                                    ibind, nnval = LKP.lookup_1NN_old(reflocs, self.antennas[key].wts_P1[i], inplocs,
-                                                                  distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                                                  remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-
-                                    # ibind, nnval = LKP.lookup(self.antennas[key].wtspos_P1[i][:,0]+self.antennas[key].location.x*(self.f[i]/FCNST.c),
-                                    #                           self.antennas[key].wtspos_P1[i][:,1]+self.antennas[key].location.y*(self.f[i]/FCNST.c),
-                                    #                           self.antennas[key].wts_P1[i], self.gridx_P1*self.f[i]/FCNST.c,
-                                    #                           self.gridy_P1*self.f[i]/FCNST.c, distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                    #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                    roi_ind = NP.unravel_index(ibind, self.gridx_P1.shape)
-                                    if normalize:
-                                        nnval /= NP.sum(nnval)
-                                elif self.antennas[key].wtspos_P1_scale == 'scale':
-                                    if i == 0: # Determine some parameters only for zeroth channel if scaling is set
-                                        reflocs = self.antennas[key].wtspos_P1[0] + (self.f[0]/FCNST.c) * NP.asarray([self.antennas[key].location.x, self.antennas[key].location.y]).reshape(1,-1)
-                                        inplocs = (self.f[0]/FCNST.c) * NP.hstack((self.gridx_P1.reshape(-1,1), self.gridy_P1.reshape(-1,1)))
-                                        ibind, nnval = LKP.lookup_1NN_old(reflocs, self.antennas[key].wts_P1[0], inplocs,
-                                                                      distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                                                      remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                        # ibind, nnval = LKP.lookup(self.antennas[key].wtspos_P1[0][:,0]+self.antennas[key].location.x*(self.f[0]/FCNST.c),
-                                        #                           self.antennas[key].wtspos_P1[0][:,1]+self.antennas[key].location.y*(self.f[0]/FCNST.c),
-                                        #                           self.antennas[key].wts_P1[0], self.gridx_P1*self.f[0]/FCNST.c,
-                                        #                           self.gridy_P1*self.f[0]/FCNST.c, distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                        #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                        roi_ind = NP.unravel_index(ibind, self.gridx_P1.shape)
-                                        if normalize:
-                                            nnval /= NP.sum(nnval)
-                                else:
-                                    raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-
-                                self.grid_illumination_P1[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += nnval
-                                self.grid_Ef_P1[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += self.antennas[key].pol.Ef_P1[i] * nnval
-                            else:
-                                if self.antennas[key].wtspos_P1_scale is None:
-                                    grid_illumination_P1 = GRD.conv_grid2d(self.antennas[key].location.x * (self.f[i]/FCNST.c),
-                                                                           self.antennas[key].location.y * (self.f[i]/FCNST.c),
-                                                                           self.antennas[key].wtspos_P1[i][:,0],
-                                                                           self.antennas[key].wtspos_P1[i][:,1],
-                                                                           self.antennas[key].wts_P1[i],
-                                                                           self.gridx_P1 * (self.f[i]/FCNST.c),
-                                                                           self.gridy_P1 * (self.f[i]/FCNST.c),
-                                                                           method=method)
-                                    grid_illumination_P1 = grid_illumination_P1.reshape(self.gridx_P1.shape)
-                                    if normalize:
-                                        grid_illumination_P1 = grid_illumination_P1 / NP.sum(grid_illumination_P1)
-                                    roi_ind = NP.where(NP.abs(grid_illumination_P1) >= eps)
-                                elif self.antennas[key].wtspos_P1_scale == 'scale':
-                                    if i == 0:
-                                        grid_illumination_P1 = GRD.conv_grid2d(self.antennas[key].location.x * (self.f[0]/FCNST.c),
-                                                                               self.antennas[key].location.y * (self.f[0]/FCNST.c),
-                                                                               self.antennas[key].wtspos_P1[0][:,0],
-                                                                               self.antennas[key].wtspos_P1[0][:,1],
-                                                                               self.antennas[key].wts_P1[0],
-                                                                               self.gridx_P1 * (self.f[0]/FCNST.c),
-                                                                               self.gridy_P1 * (self.f[0]/FCNST.c),
-                                                                               method=method)
-                                        grid_illumination_P1 = grid_illumination_P1.reshape(self.gridx_P1.shape)
-                                        if normalize:
-                                            grid_illumination_P1 = grid_illumination_P1 / NP.sum(grid_illumination_P1)
-                                        roi_ind = NP.where(NP.abs(grid_illumination_P1) >= eps)
-                                else:
-                                    raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-                                
-                                self.grid_illumination_P1[:,:,i] += grid_illumination_P1
-                                self.grid_Ef_P1[:,:,i] += self.antennas[key].pol.Ef_P1[i] * grid_illumination_P1
-
-                            self.antennas[key].gridinfo_P1[i] = {} # Create a nested dictionary to hold channel info
-                            self.antennas[key].gridinfo_P1[i]['f'] = self.f[i]
-                            self.antennas[key].gridinfo_P1[i]['flag'] = False
-                            self.antennas[key].gridinfo_P1[i]['gridxy_ind'] = zip(*roi_ind)
-                            if method == 'NN':
-                                self.antennas[key].gridinfo_P1[i]['illumination'] = nnval
-                                self.antennas[key].gridinfo_P1[i]['Ef'] = self.antennas[key].pol.Ef_P1[i] * nnval  
-                            else:
-                                self.antennas[key].gridinfo_P1[i]['illumination'] = grid_illumination_P1[roi_ind]
-                                self.antennas[key].gridinfo_P1[i]['Ef'] = self.antennas[key].pol.Ef_P1[i] * grid_illumination_P1[roi_ind]
-
-        if (pol is None) or (pol == 'P2'):
-
-            if not self.grid_ready_P2: # Need to create a grid since it could have changed with updates
-                self.grid(pol='P2') 
-
-            if ants is not None:
-
-                if isinstance(ants, Antenna):
-                    ants = [ants]
-
-                if isinstance(ants, (dict, AntennaArray)):
-                    # Check if these antennas are new or old and compatible
-                    for key in ants: 
-                        if isinstance(ants[key], Antenna): # required if ants is a dictionary and not instance of AntennaArray
-                            if key in self.antennas:
-                                if unconvolve_existing: # Effects on the grid of antennas already existing must be removed 
-                                    if self.antennas[key].gridinfo_P2: # if gridding info is not empty
-                                        for i in range(len(self.f)):
-                                            self.grid_unconvolve(ants[key].label)
-                                else:
-                                    raise KeyError('Antenna {0} already found to exist in the dictionary of antennas but cannot proceed grid_convolve() without unconvolving first.'.format(ants[key].label)) 
-                            
-                        else:
-                            del ants[key] # remove the dictionary element since it is not an Antenna instance
-
-                    for key in ants:
-                        if not ants[key].pol.flag_P2:
-                            for i in range(len(self.f)):
-                                if method == 'NN':
-                                    if ants[key].wtspos_P2_scale is None: 
-                                        reflocs = ants[key].wtspos_P2[i] + (self.f[i]/FCNST.c) * NP.asarray([ants[key].location.x, ants[key].location.y]).reshape(1,-1)
-                                        inplocs = (self.f[i]/FCNST.c) * NP.hstack((self.gridx_P2.reshape(-1,1), self.gridy_P2.reshape(-1,1)))
-                                        ibind, nnval = LKP.lookup_1NN_old(reflocs, ants[key].wts_P2[i], inplocs,
-                                                                      distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                                                      remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-
-                                        # ibind, nnval = LKP.lookup(ants[key].wtspos_P2[i][:,0] + ants[key].location.x * (self.f[i]/FCNST.c),
-                                        #                           ants[key].wtspos_P2[i][:,1] + ants[key].location.y * (self.f[i]/FCNST.c),
-                                        #                           ants[key].wts_P2[i], self.gridx_P2*self.f[i]/FCNST.c,
-                                        #                           self.gridy_P2*self.f[i]/FCNST.c, distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                        #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                        roi_ind = NP.unravel_index(ibind, self.gridx_P2.shape)
-                                        if normalize:
-                                            nnval /= NP.sum(nnval)
-                                    elif ants[key].wtspos_P2_scale == 'scale':
-                                        if i == 0: # Determine some parameters only for zeroth channel if scaling is set
-                                            reflocs = ants[key].wtspos_P2[0] + (self.f[0]/FCNST.c) * NP.asarray([ants[key].location.x, ants[key].location.y]).reshape(1,-1)
-                                            inplocs = (self.f[0]/FCNST.c) * NP.hstack((self.gridx_P2.reshape(-1,1), self.gridy_P2.reshape(-1,1)))
-                                            ibind, nnval = LKP.lookup_1NN_old(reflocs, ants[key].wts_P2[0], inplocs,
-                                                                          distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                                                          remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                            # ibind, nnval = LKP.lookup(ants[key].wtspos_P2[0][:,0]+ants[key].location.x*(self.f[0]/FCNST.c),
-                                            #                           ants[key].wtspos_P2[0][:,1]+ants[key].location.y*(self.f[0]/FCNST.c),
-                                            #                           ants[key].wts_P2[0], self.gridx_P2*self.f[0]/FCNST.c,
-                                            #                           self.gridy_P2*self.f[0]/FCNST.c, distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                            #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                            roi_ind = NP.unravel_index(ibind, self.gridx_P2.shape)
-                                            if normalize:
-                                                nnval /= NP.sum(nnval)
-                                    else:
-                                        raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-
-                                    self.grid_illumination_P2[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += nnval
-                                    self.grid_Ef_P2[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += ants[key].pol.Ef_P2[i] * nnval
-                                else:
-                                    if ants[key].wtspos_P2_scale is None: 
-                                        grid_illumination_P2 = GRD.conv_grid2d(ants[key].location.x * (self.f[i]/FCNST.c),
-                                                                               ants[key].location.y * (self.f[i]/FCNST.c),
-                                                                               ants[key].wtspos_P2[i][:,0],
-                                                                               ants[key].wtspos_P2[i][:,1],
-                                                                               ants[key].wts_P2[i],
-                                                                               self.gridx_P2 * (self.f[i]/FCNST.c),
-                                                                               self.gridy_P2 * (self.f[i]/FCNST.c),
-                                                                               method=method)
-                                        grid_illumination_P2 = grid_illumination_P2.reshape(self.gridx_P2.shape)
-                                        if normalize:
-                                            grid_illumination_P2 = grid_illumination_P2 / NP.sum(grid_illumination_P2)
-                                        roi_ind = NP.where(NP.abs(grid_illumination_P2) >= eps)
-                                    elif ants[key].wtspos_P2_scale == 'scale':
-                                        if i == 0: # Determine some parameters only for zeroth channel if scaling is set
-                                            grid_illumination_P2 = GRD.conv_grid2d(ants[key].location.x * (self.f[0]/FCNST.c),
-                                                                                   ants[key].location.y * (self.f[0]/FCNST.c),
-                                                                                   ants[key].wtspos_P2[0][:,0],
-                                                                                   ants[key].wtspos_P2[0][:,1],
-                                                                                   ants[key].wts_P2[0],
-                                                                                   self.gridx_P2 * (self.f[0]/FCNST.c),
-                                                                                   self.gridy_P2 * (self.f[0]/FCNST.c),
-                                                                                   method=method)
-                                            grid_illumination_P2 = grid_illumination_P2.reshape(self.gridx_P2.shape)
-                                            if normalize:
-                                                grid_illumination_P2 = grid_illumination_P2 / NP.sum(grid_illumination_P2)
-                                            roi_ind = NP.where(NP.abs(grid_illumination_P2) >= eps)
-                                    else:
-                                        raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-
-                                    self.grid_illumination_P2[:,:,i] += grid_illumination_P2
-                                    self.grid_Ef_P2[:,:,i] += ants[key].pol.Ef_P2[i] * grid_illumination_P2
-
-                                if key in self.antennas:
-                                    if i not in self.antennas[key].gridinfo_P2:
-                                        self.antennas[key].gridinfo_P2 = {} # Create an empty dictionary for each channel to hold grid info
-                                    self.antennas[key].gridinfo_P2[i]['f'] = self.f[i]
-                                    self.antennas[key].gridinfo_P2[i]['flag'] = False
-                                    self.antennas[key].gridinfo_P2[i]['gridxy_ind'] = zip(*roi_ind)
-                                    self.antennas[key].wtspos_P2_scale = ants[key].wtspos_P2_scale
-                                    if method == 'NN':
-                                        self.antennas[key].gridinfo_P2[i]['illumination'] = nnval
-                                        self.antennas[key].gridinfo_P2[i]['Ef'] = ants[key].pol.Ef_P2[i] * nnval
-                                    else:
-                                        self.antennas[key].gridinfo_P2[i]['illumination'] = grid_illumination_P2[roi_ind]
-                                        self.antennas[key].gridinfo_P2[i]['Ef'] = ants[key].pol.Ef_P2[i] * grid_illumination_P2[roi_ind]
-
-                elif isinstance(ants, list):
-                    # Check if these antennas are new or old and compatible
-                    for key in range(len(ants)): 
-                        if isinstance(ants[key], Antenna): # required if ants is a dictionary and not instance of AntennaArray
-                            if ants[key].label in self.antennas:
-                                if unconvolve_existing: # Effects on the grid of antennas already existing must be removed 
-                                    if self.antennas[ants[key].label].gridinfo_P2: # if gridding info is not empty
-                                        for i in range(len(self.f)):
-                                            self.grid_unconvolve(ants[key].label)
-                                else:
-                                    raise KeyError('Antenna {0} already found to exist in the dictionary of antennas but cannot proceed grid_convolve() without unconvolving first.'.format(ants[key].label))
-                            
-                        else:
-                            del ants[key] # remove the dictionary element since it is not an Antenna instance
-
-                    for key in range(len(ants)):
-                        if not ants[key].pol.flag_P2:
-                            for i in range(len(self.f)):
-                                if method == 'NN':
-                                    if ants[key].wtspos_P2_scale is None: 
-                                        reflocs = ants[key].wtspos_P2[i] + (self.f[i]/FCNST.c) * NP.asarray([ants[key].location.x, ants[key].location.y]).reshape(1,-1)
-                                        inplocs = (self.f[i]/FCNST.c) * NP.hstack((self.gridx_P2.reshape(-1,1), self.gridy_P2.reshape(-1,1)))
-                                        ibind, nnval = LKP.lookup_1NN_old(reflocs, ants[key].wts_P2[i], inplocs,
-                                                                      distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                                                      remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                        # ibind, nnval = LKP.lookup(ants[key].wtspos_P2[i][:,0] + ants[key].location.x * (self.f[i]/FCNST.c),
-                                        #                           ants[key].wtspos_P2[i][:,1] + ants[key].location.y * (self.f[i]/FCNST.c),
-                                        #                           ants[key].wts_P2[i], self.gridx_P2*self.f[i]/FCNST.c,
-                                        #                           self.gridy_P2*self.f[i]/FCNST.c, distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                        #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                        roi_ind = NP.unravel_index(ibind, self.gridx_P2.shape)
-                                        if normalize:
-                                            nnval /= NP.sum(nnval)
-                                    elif ants[key].wtspos_P2_scale == 'scale':
-                                        if i == 0: # Determine some parameters only for zeroth channel if scaling is set
-                                            reflocs = ants[key].wtspos_P2[0] + (self.f[0]/FCNST.c) * NP.asarray([ants[key].location.x, ants[key].location.y]).reshape(1,-1)
-                                            inplocs = (self.f[0]/FCNST.c) * NP.hstack((self.gridx_P2.reshape(-1,1), self.gridy_P2.reshape(-1,1)))
-                                            ibind, nnval = LKP.lookup_1NN_old(reflocs, ants[key].wts_P2[0], inplocs,
-                                                                          distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                                                          remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                            # ibind, nnval = LKP.lookup(ants[key].wtspos_P2[0][:,0]+ants[key].location.x*(self.f[0]/FCNST.c),
-                                            #                           ants[key].wtspos_P2[0][:,1]+ants[key].location.y*(self.f[0]/FCNST.c),
-                                            #                           ants[key].wts_P2[0], self.gridx_P2*self.f[0]/FCNST.c,
-                                            #                           self.gridy_P2*self.f[0]/FCNST.c, distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                            #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                            roi_ind = NP.unravel_index(ibind, self.gridx_P2.shape)
-                                            if normalize:
-                                                nnval /= NP.sum(nnval)
-                                    else:
-                                        raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-
-                                    self.grid_illumination_P2[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += nnval
-                                    self.grid_Ef_P2[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += ants[key].pol.Ef_P2[i] * nnval
-                                else:
-                                    if ants[key].wtspos_P2_scale is None:
-                                        grid_illumination_P2 = GRD.conv_grid2d(ants[key].location.x * (self.f[i]/FCNST.c),
-                                                                               ants[key].location.y * (self.f[i]/FCNST.c),
-                                                                               ants[key].wtspos_P2[i][:,0],
-                                                                               ants[key].wtspos_P2[i][:,1],
-                                                                               ants[key].wts_P2[i],
-                                                                               self.gridx_P2 * (self.f[i]/FCNST.c),
-                                                                               self.gridy_P2 * (self.f[i]/FCNST.c),
-                                                                               method=method)
-                                        grid_illumination_P2 = grid_illumination_P2.reshape(self.gridx_P2.shape)
-                                        if normalize:
-                                            grid_illumination_P2 = grid_illumination_P2 / NP.sum(grid_illumination_P2)
-                                        roi_ind = NP.where(NP.abs(grid_illumination_P2) >= eps)
-                                    elif ants[key].wtspos_P2_scale == 'scale':
-                                        if i == 0: # Determine some parameters only for zeroth channel if scaling is set
-                                            grid_illumination_P2 = GRD.conv_grid2d(ants[key].location.x * (self.f[0]/FCNST.c),
-                                                                                   ants[key].location.y * (self.f[0]/FCNST.c),
-                                                                                   ants[key].wtspos_P2[0][:,0],
-                                                                                   ants[key].wtspos_P2[0][:,1],
-                                                                                   ants[key].wts_P2[0],
-                                                                                   self.gridx_P2 * (self.f[0]/FCNST.c),
-                                                                                   self.gridy_P2 * (self.f[0]/FCNST.c),
-                                                                                   method=method)
-                                            grid_illumination_P2 = grid_illumination_P2.reshape(self.gridx_P2.shape)
-                                            if normalize:
-                                                grid_illumination_P2 = grid_illumination_P2 / NP.sum(grid_illumination_P2)
-                                            roi_ind = NP.where(NP.abs(grid_illumination_P2) >= eps)
-                                    else:
-                                        raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-
-                                    self.grid_illumination_P2[:,:,i] += grid_illumination_P2
-                                    self.grid_Ef_P2[:,:,i] += ants[key].pol.Ef_P2[i] * grid_illumination_P2
-
-                                if ants[key].label in self.antennas:
-                                    if i not in self.antennas[key].gridinfo_P2:
-                                        self.antennas[key].gridinfo_P2 = {} # Create an empty dictionary for each channel to hold grid info
-                                    self.antennas[ants[key].label].gridinfo_P2[i]['f'] = self.f[i]
-                                    self.antennas[ants[key].label].gridinfo_P2[i]['flag'] = False
-                                    self.antennas[ants[key].label].gridinfo_P2[i]['gridxy_ind'] = zip(*roi_ind)
-                                    self.antennas[key].wtspos_P2_scale = ants[key].wtspos_P2_scale
-                                    if method == 'NN':
-                                        self.antennas[ants[key].label].gridinfo_P2[i]['illumination'] = nnval
-                                        self.antennas[ants[key].label].gridinfo_P2[i]['Ef'] = ants[key].pol.Ef_P2[i] * nnval
-                                    else:
-                                        self.antennas[ants[key].label].gridinfo_P2[i]['illumination'] = grid_illumination_P2[roi_ind]
-                                        self.antennas[ants[key].label].gridinfo_P2[i]['Ef'] = ants[key].pol.Ef_P2[i] * grid_illumination_P2[roi_ind] 
-                else:
-                    raise TypeError('ants must be an instance of AntennaArray, a dictionary of Antenna instances, a list of Antenna instances or an Antenna instance.')
-
-            else:
-
-                self.grid_illumination_P2 = NP.zeros((self.gridx_P2.shape[0],
-                                                      self.gridx_P2.shape[1],
-                                                      len(self.f)),
-                                                     dtype=NP.complex_)
-                self.grid_Ef_P2 = NP.zeros((self.gridx_P2.shape[0],
-                                            self.gridx_P2.shape[1],
-                                            len(self.f)), dtype=NP.complex_)
-
-                for key in self.antennas:
-                    if not self.antennas[key].pol.flag_P2:
-                        for i in range(len(self.f)):
-                            if method == 'NN':
-                                if self.antennas[key].wtspos_P2_scale is None: 
-                                    reflocs = self.antennas[key].wtspos_P2[i] + (self.f[i]/FCNST.c) * NP.asarray([self.antennas[key].location.x, self.antennas[key].location.y]).reshape(1,-1)
-                                    inplocs = (self.f[i]/FCNST.c) * NP.hstack((self.gridx_P2.reshape(-1,1), self.gridy_P2.reshape(-1,1)))
-                                    ibind, nnval = LKP.lookup_1NN_old(reflocs, self.antennas[key].wts_P2[i], inplocs,
-                                                                  distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                                                  remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                    # ibind, nnval = LKP.lookup(self.antennas[key].wtspos_P2[i][:,0]+self.antennas[key].location.x*(self.f[i]/FCNST.c),
-                                    #                           self.antennas[key].wtspos_P2[i][:,1]+self.antennas[key].location.y*(self.f[i]/FCNST.c),
-                                    #                           self.antennas[key].wts_P2[i], self.gridx_P2*self.f[i]/FCNST.c,
-                                    #                           self.gridy_P2*self.f[i]/FCNST.c, distance_ULIM=distNN*self.f[i]/FCNST.c,
-                                    #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                    roi_ind = NP.unravel_index(ibind, self.gridx_P2.shape)
-                                    if normalize:
-                                        nnval /= NP.sum(nnval)
-                                elif self.antennas[key].wtspos_P2_scale == 'scale':
-                                    if i == 0: # Determine some parameters only for zeroth channel if scaling is set
-                                        reflocs = self.antennas[key].wtspos_P2[0] + (self.f[0]/FCNST.c) * NP.asarray([self.antennas[key].location.x, self.antennas[key].location.y]).reshape(1,-1)
-                                        inplocs = (self.f[0]/FCNST.c) * NP.hstack((self.gridx_P2.reshape(-1,1), self.gridy_P2.reshape(-1,1)))
-                                        ibind, nnval = LKP.lookup_1NN_old(reflocs, self.antennas[key].wts_P2[0], inplocs,
-                                                                      distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                                                      remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                        # ibind, nnval = LKP.lookup(self.antennas[key].wtspos_P2[0][:,0]+self.antennas[key].location.x*(self.f[0]/FCNST.c),
-                                        #                           self.antennas[key].wtspos_P2[0][:,1]+self.antennas[key].location.y*(self.f[0]/FCNST.c),
-                                        #                           self.antennas[key].wts_P2[0], self.gridx_P2*self.f[0]/FCNST.c,
-                                        #                           self.gridy_P2*self.f[0]/FCNST.c, distance_ULIM=distNN*self.f[0]/FCNST.c,
-                                        #                           remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
-                                        roi_ind = NP.unravel_index(ibind, self.gridx_P2.shape)
-                                        if normalize:
-                                            nnval /= NP.sum(nnval)
-                                else:
-                                    raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-
-                                self.grid_illumination_P2[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += nnval
-                                self.grid_Ef_P2[roi_ind+(i+NP.zeros(ibind.size, dtype=NP.int),)] += self.antennas[key].pol.Ef_P2[i] * nnval
-                            else:
-                                if self.antennas[key].wtspos_P2_scale is None:
-                                    grid_illumination_P2 = GRD.conv_grid2d(self.antennas[key].location.x * (self.f[i]/FCNST.c),
-                                                                           self.antennas[key].location.y * (self.f[i]/FCNST.c),
-                                                                           self.antennas[key].wtspos_P2[i][:,0],
-                                                                           self.antennas[key].wtspos_P2[i][:,1],
-                                                                           self.antennas[key].wts_P2[i],
-                                                                           self.gridx_P2 * (self.f[i]/FCNST.c),
-                                                                           self.gridy_P2 * (self.f[i]/FCNST.c),
-                                                                           method=method)
-                                    grid_illumination_P2 = grid_illumination_P2.reshape(self.gridx_P2.shape)
-                                    if normalize:
-                                        grid_illumination_P2 = grid_illumination_P2 / NP.sum(grid_illumination_P2)
-                                    roi_ind = NP.where(NP.abs(grid_illumination_P2) >= eps)
-                                elif self.antennas[key].wtspos_P2_scale == 'scale':
-                                    if i == 0:
-                                        grid_illumination_P2 = GRD.conv_grid2d(self.antennas[key].location.x * (self.f[0]/FCNST.c),
-                                                                               self.antennas[key].location.y * (self.f[0]/FCNST.c),
-                                                                               self.antennas[key].wtspos_P2[0][:,0],
-                                                                               self.antennas[key].wtspos_P2[0][:,1],
-                                                                               self.antennas[key].wts_P2[0],
-                                                                               self.gridx_P2 * (self.f[0]/FCNST.c),
-                                                                               self.gridy_P2 * (self.f[0]/FCNST.c),
-                                                                               method=method)
-                                        grid_illumination_P2 = grid_illumination_P2.reshape(self.gridx_P2.shape)
-                                        if normalize:
-                                            grid_illumination_P2 = grid_illumination_P2 / NP.sum(grid_illumination_P2)
-                                        roi_ind = NP.where(NP.abs(grid_illumination_P2) >= eps)
-                                else:
-                                    raise ValueError('Invalid scale option specified. Aborting grid_convolve().')
-                                
-                                self.grid_illumination_P2[:,:,i] += grid_illumination_P2
-                                self.grid_Ef_P2[:,:,i] += self.antennas[key].pol.Ef_P2[i] * grid_illumination_P2
-
-                            self.antennas[key].gridinfo_P2[i] = {} # Create a nested dictionary to hold channel info
-                            self.antennas[key].gridinfo_P2[i]['f'] = self.f[i]
-                            self.antennas[key].gridinfo_P2[i]['flag'] = False
-                            self.antennas[key].gridinfo_P2[i]['gridxy_ind'] = zip(*roi_ind)
-                            if method == 'NN':
-                                self.antennas[key].gridinfo_P2[i]['illumination'] = nnval
-                                self.antennas[key].gridinfo_P2[i]['Ef'] = self.antennas[key].pol.Ef_P2[i] * nnval  
-                            else:
-                                self.antennas[key].gridinfo_P2[i]['illumination'] = grid_illumination_P2[roi_ind]
-                                self.antennas[key].gridinfo_P2[i]['Ef'] = self.antennas[key].pol.Ef_P2[i] * grid_illumination_P2[roi_ind]
-
-    ################################################################################
-
-    def grid_unconvolve(self, ants, pol=None):
-
-        """
-        ----------------------------------------------------------------------------
-        Routine to de-project the electric field illumination pattern and the
-        electric fields on the grid. It can operate on the entire antenna array or
-        incrementally de-project the electric fields and illumination patterns of
-        specific antennas from an already existing grid.
-
-        Inputs:
-
-        ants        [instance of class AntennaArray, single instance or list of
-                    instances of class Antenna, or a dictionary holding instances of
-                    of class Antenna] If a dictionary is provided, the keys
-                    should be the antenna labels and the values should be instances 
-                    of class Antenna. If a list is provided, it should be a list of 
-                    valid instances of class Antenna. These instance(s) of class
-                    Antenna will be merged to the existing grid contained in the
-                    instance of AntennaArray class. If any of the antennas are not
-                    found to be in the already existing set of antennas, an
-                    exception is raised accordingly and code execution stops.
-
-        pol         [String] The polarization to be gridded. Can be set to 'P1' or
-                    'P2'. If set to None, gridding for both 'P1' and 'P2' is
-                    performed. Default = None
-
-        ----------------------------------------------------------------------------
-        """
-
-        try:
-            ants
-        except NameError:
-            raise NameError('No antenna(s) supplied.')
-
-        if (pol is None) or (pol == 'P1'):
-
-            if isinstance(ants, (Antenna, str)):
-                ants = [ants]
-
-            if isinstance(ants, (dict, AntennaArray)):
-                # Check if these antennas are new or old and compatible
-                for key in ants: 
-                    if isinstance(ants[key], Antenna): # required if ants is a dictionary and not instance of AntennaArray
-                        if key in self.antennas:
-                            if self.antennas[key].gridinfo_P1: # if gridding info is not empty
-                                for i in range(len(self.f)):
-                                    xind, yind = zip(*self.antennas[key].gridinfo_P1[i]['gridxy_ind'])
-                                    self.grid_illumination_P1[xind, yind, i] -= self.antennas[key].gridinfo_P1[i]['illumination']
-                                    self.grid_Ef_P1[xind, yind, i] -= self.antennas[key].gridinfo_P1[i]['Ef']
-                                self.antennas[key].gridinfo_P1 = {}
-                        else:
-                            raise KeyError('Antenna {0} not found to exist in the dictionary of antennas.'.format(ants[key].label))
-                                
-            elif isinstance(ants, list):
-                # Check if these antennas are new or old and compatible
-                for key in range(len(ants)): 
-                    if isinstance(ants[key], Antenna): # required if ants is a dictionary and not instance of AntennaArray
-                        if ants[key].label in self.antennas:
-                            if self.antennas[ants[key].label].gridinfo_P1: # if gridding info is not empty
-                                for i in range(len(self.f)):
-                                    xind, yind = zip(*self.antennas[ants[key].label].gridinfo_P1[i]['gridxy_ind'])
-                                    self.grid_illumination_P1[xind, yind, i] -= self.antennas[ants[key].label].gridinfo_P1[i]['illumination']
-                                    self.grid_Ef_P1[xind, yind, i] -= self.antennas[ants[key].label].gridinfo_P1[i]['Ef']
-                                self.antennas[ants[key].label].gridinfo_P1 = {}
-                        else:
-                            raise KeyError('Antenna {0} not found to exist in the dictionary of antennas.'.format(ants[key].label))
-                    elif isinstance(ants[key], str):
-                        if ants[key] in self.antennas:
-                            if self.antennas[ants[key]].gridinfo_P1: # if gridding info is not empty
-                                for i in range(len(self.f)):
-                                    xind, yind = zip(*self.antennas[ants[key]].gridinfo_P1[i]['gridxy_ind'])
-                                    self.grid_illumination_P1[xind, yind, i] -= self.antennas[ants[key]].gridinfo_P1[i]['illumination']
-                                    self.grid_Ef_P1[xind, yind, i] -= self.antennas[ants[key]].gridinfo_P1[i]['Ef']
-                                self.antennas[ants[key]].gridinfo_P1 = {}
-                        else:
-                            raise KeyError('Antenna {0} not found to exist in the dictionary of antennas.'.format(ants[key]))
-                    else:
-                        raise TypeError('ants must be an instance of class AntennaArray, a list of instances of class Antenna, a dictionary of instances of class Antenna or a list of antenna labels.')
-            else:
-                raise TypeError('ants must be an instance of AntennaArray, a dictionary of Antenna instances, a list of Antenna instances, an Antenna instance, or a list of antenna labels.')
-
-        if (pol is None) or (pol == 'P2'):
-
-            if isinstance(ants, (Antenna, str)):
-                ants = [ants]
-
-            if isinstance(ants, (dict, AntennaArray)):
-                # Check if these antennas are new or old and compatible
-                for key in ants: 
-                    if isinstance(ants[key], Antenna): # required if ants is a dictionary and not instance of AntennaArray
-                        if key in self.antennas:
-                            if self.antennas[key].gridinfo_P2: # if gridding info is not empty
-                                for i in range(len(self.f)):
-                                    xind, yind = zip(*self.antennas[key].gridinfo_P2[i]['gridxy_ind'])
-                                    self.grid_illumination_P2[xind, yind, i] -= self.antennas[key].gridinfo_P2[i]['illumination']
-                                    self.grid_Ef_P2[xind, yind, i] -= self.antennas[key].gridinfo_P2[i]['Ef']
-                                self.antennas[key].gridinfo_P2 = {}
-                        else:
-                            raise KeyError('Antenna {0} not found to exist in the dictionary of antennas.'.format(ants[key].label))
-                                
-            elif isinstance(ants, list):
-                # Check if these antennas are new or old and compatible
-                for key in range(len(ants)): 
-                    if isinstance(ants[key], Antenna): # required if ants is a dictionary and not instance of AntennaArray
-                        if ants[key].label in self.antennas:
-                            if self.antennas[ants[key].label].gridinfo_P2: # if gridding info is not empty
-                                for i in range(len(self.f)):
-                                    xind, yind = zip(*self.antennas[ants[key].label].gridinfo_P2[i]['gridxy_ind'])
-                                    self.grid_illumination_P2[xind, yind, i] -= self.antennas[ants[key].label].gridinfo_P2[i]['illumination']
-                                    self.grid_Ef_P2[xind, yind, i] -= self.antennas[ants[key].label].gridinfo_P2[i]['Ef']
-                                self.antennas[ants[key].label].gridinfo_P2 = {}
-                        else:
-                            raise KeyError('Antenna {0} not found to exist in the dictionary of antennas.'.format(ants[key].label))
-                    elif isinstance(ants[key], str):
-                        if ants[key] in self.antennas:
-                            if self.antennas[ants[key]].gridinfo_P2: # if gridding info is not empty
-                                for i in range(len(self.f)):
-                                    xind, yind = zip(*self.antennas[ants[key]].gridinfo_P2[i]['gridxy_ind'])
-                                    self.grid_illumination_P2[xind, yind, i] -= self.antennas[ants[key]].gridinfo_P2[i]['illumination']
-                                    self.grid_Ef_P2[xind, yind, i] -= self.antennas[ants[key]].gridinfo_P2[i]['Ef']
-                                self.antennas[ants[key]].gridinfo_P2 = {}
-                        else:
-                            raise KeyError('Antenna {0} not found to exist in the dictionary of antennas.'.format(ants[key]))
-                    else:
-                        raise TypeError('ants must be an instance of class AntennaArray, a list of instances of class Antenna, a dictionary of instances of class Antenna or a list of antenna labels.')
-            else:
-                raise TypeError('ants must be an instance of AntennaArray, a dictionary of Antenna instances, a list of Antenna instances, an Antenna instance, or a list of antenna labels.')
-
-    ##################################################################################
-
-    def update(self, updates=None, verbose=False):
-
-        """
-        -------------------------------------------------------------------------
-        Updates the antenna array instance with newer attribute values. Can also 
-        be used to add and/or remove antennas with/without affecting the existing
-        grid.
-
-        Inputs:
-
-        updates     [Dictionary] Consists of information updates under the
-                    following principal keys:
-                    'antenna_array': Consists of updates for the AntennaArray
-                                instance. This is a dictionary which consists of
-                                the following keys:
-                                'timestamp'   Unique identifier of the time 
-                                              series. It is optional to set this 
-                                              to a scalar. If not given, no 
-                                              change is made to the existing
-                                              timestamp attribute
-                                'do_grid'     [boolean] If set to True, create or
-                                              recreate a grid. To be specified 
-                                              when the antenna locations are
-                                              updated.
-                    'antennas': Holds a dictionary consisting of updates for 
-                                individual antennas. One of the keys is 'label' 
-                                which indicates an antenna label. If absent, the 
-                                code execution stops by throwing an exception. 
-                                The other optional keys and the information they
-                                hold are listed below:
-                                'action'      [String scalar] Indicates the type 
-                                              of update operation. 'add' adds the 
-                                              Antenna instance to the 
-                                              AntennaArray instance. 'remove' 
-                                              removes the antenna from the
-                                              antenna array instance. 'modify'
-                                              modifies the antenna attributes in 
-                                              the antenna array instance. This 
-                                              key has to be set. No default.
-                                'grid_action' [Boolean] If set to True, will 
-                                              apply the grdding operations 
-                                              (grid(), grid_convolve(), and 
-                                              grid_unconvolve()) appropriately 
-                                              according to the value of the 
-                                              'action' key. If set to None or 
-                                              False, gridding effects will remain
-                                              unchanged. Default=None(=False).
-                                'antenna'     [instance of class Antenna] Updated 
-                                              Antenna class instance. Can work 
-                                              for action key 'remove' even if not 
-                                              set (=None) or set to an empty 
-                                              string '' as long as 'label' key is 
-                                              specified. 
-                                'gridpol'     [Optional. String scalar] Initiates 
-                                              the specified action on 
-                                              polarization 'P1' or 'P2'. Can be 
-                                              set to 'P1' or 'P2'. If not 
-                                              provided (=None), then the 
-                                              specified action applies to both
-                                              polarizations. Default = None.
-                                'Et_P1'       [Optional. Numpy array] Complex 
-                                              Electric field time series in 
-                                              polarization P1. Is used only if 
-                                              set and if 'action' key value is 
-                                              set to 'modify'. Default = None.
-                                'Et_P2'       [Optional. Numpy array] Complex 
-                                              Electric field time series in 
-                                              polarization P2. Is used only if 
-                                              set and if 'action' key value is 
-                                              set to 'modify'. Default = None.
-                                't'           [Optional. Numpy array] Time axis 
-                                              of the time series. Is used only 
-                                              if set and if 'action' key value is
-                                              set to 'modify'. Default = None.
-                                'timestamp'   [Optional. Scalar] Unique 
-                                              identifier of the time series. Is 
-                                              used only if set and if 'action' 
-                                              key value is set to 'modify'.
-                                              Default = None.
-                                'location'    [Optional. instance of GEOM.Point
-                                              class] 
-                                              Antenna location in the local ENU 
-                                              coordinate system. Used only if 
-                                              set and if 'action' key value is 
-                                              set to 'modify'. Default = None.
-                                'wtsinfo_P1'  [Optional. List of dictionaries] 
-                                              See description in Antenna class 
-                                              member function update(). Is used 
-                                              only if set and if 'action' key 
-                                              value is set to 'modify'.
-                                              Default = None.
-                                'wtsinfo_P2'  [Optional. List of dictionaries] 
-                                              See description in Antenna class 
-                                              member function update(). Is used 
-                                              only if set and if 'action' key 
-                                              value is set to 'modify'.
-                                              Default = None.
-                                'flag_P1'     [Optional. Boolean] Flagging status 
-                                              update for polarization P1 of the 
-                                              antenna. If True, polarization P1 
-                                              measurements of the antenna will be
-                                              flagged. If not set (=None), the 
-                                              previous or default flag status 
-                                              will continue to apply. If set to 
-                                              False, the antenna status will be
-                                              updated to become unflagged.
-                                              Default = None.
-                                'flag_P2'     [Optional. Boolean] Flagging status 
-                                              update for polarization P2 of the 
-                                              antenna. If True, polarization P2 
-                                              measurements of the antenna will be
-                                              flagged. If not set (=None), the 
-                                              previous or default flag status 
-                                              will continue to apply. If set to 
-                                              False, the antenna status will be
-                                              updated to become unflagged.
-                                              Default = None.
-                                'gridfunc_freq'
-                                              [Optional. String scalar] Read the 
-                                              description of inputs to Antenna 
-                                              class member function update(). If 
-                                              set to None (not provided), this
-                                              attribute is determined based on 
-                                              the size of wtspos_P1 and wtspos_P2. 
-                                              It is applicable only when 'action' 
-                                              key is set to 'modify'. 
-                                              Default = None.
-                                'delaydict_P1'
-                                              Dictionary containing information 
-                                              on delay compensation to be applied 
-                                              to the fourier transformed electric 
-                                              fields for polarization P1. Default
-                                              is None (no delay compensation to 
-                                              be applied). Refer to the docstring 
-                                              of member function
-                                              delay_compensation() of class 
-                                              PolInfo for more details.
-                                'delaydict_P2'
-                                              Dictionary containing information 
-                                              on delay compensation to be applied 
-                                              to the fourier transformed electric 
-                                              fields for polarization P2. Default
-                                              is None (no delay compensation to 
-                                              be applied). Refer to the docstring 
-                                              of member function
-                                              delay_compensation() of class 
-                                              PolInfo for more details.
-                                'ref_freq'    [Optional. Scalar] Positive value 
-                                              (in Hz) of reference frequency 
-                                              (used if gridfunc_freq is set to
-                                              'scale') at which wtspos_P1 and 
-                                              wtspos_P2 in wtsinfo_P1 and 
-                                              wtsinfo_P2, respectively, are 
-                                              provided. If set to None, the 
-                                              reference frequency already set in
-                                              antenna array instance remains
-                                              unchanged. Default = None.
-                                'pol_type'    [Optional. String scalar] 'Linear' 
-                                              or 'Circular'. Used only when 
-                                              action key is set to 'modify'. If 
-                                              not provided, then the previous
-                                              value remains in effect.
-                                              Default = None.
-                                'norm_wts'    [Optional. Boolean] Default=False. 
-                                              If set to True, the gridded weights 
-                                              are divided by the sum of weights 
-                                              so that the gridded weights add up 
-                                              to unity. This is used only when
-                                              grid_action keyword is set when
-                                              action keyword is set to 'add' or
-                                              'modify'
-                                'gridmethod'  [Optional. String] Indicates 
-                                              gridding method. It accepts the 
-                                              following values 'NN' (nearest 
-                                              neighbour), 'BL' (Bi-linear
-                                              interpolation), and'CS' (Cubic
-                                              Spline interpolation). Default='NN'
-                                'distNN'      [Optional. Scalar] Indicates the 
-                                              upper bound on distance for a 
-                                              nearest neighbour search if the 
-                                              value of 'gridmethod' is set to
-                                              'NN'. The units are of physical
-                                              distance, the same as what is 
-                                              used for antenna locations.
-                                              Default = NP.inf
-                                'maxmatch'    [scalar] A positive value 
-                                              indicating maximum number of input
-                                              locations in the antenna grid to 
-                                              be assigned. Default = None. If 
-                                              set to None, all the antenna array 
-                                              grid elements specified are 
-                                              assigned values for each antenna.
-                                              For instance, to have only one
-                                              antenna array grid element to be
-                                              populated per antenna, use
-                                              maxmatch=1. 
-                                'tol'         [scalar] If set, only lookup data 
-                                              with abs(val) > tol will be
-                                              considered for nearest neighbour 
-                                              lookup. Default = None implies 
-                                              all lookup values will be 
-                                              considered for nearest neighbour
-                                              determination. tol is to be
-                                              interpreted as a minimum value
-                                              considered as significant in the
-                                              lookup table. 
-
-        verbose     [Boolean] Default = False. If set to True, prints some 
-                    diagnotic or progress messages.
-
-        -------------------------------------------------------------------------
-        """
-
-        if updates is not None:
-            if not isinstance(updates, dict):
-                raise TypeError('Input parameter updates must be a dictionary')
-
-            if 'antennas' in updates: # contains updates at level of individual antennas
-                if not isinstance(updates['antennas'], list):
-                    updates['antennas'] = [updates['antennas']]
-                for dictitem in updates['antennas']:
-                    if not isinstance(dictitem, dict):
-                        raise TypeError('Updates to {0} instance should be provided in the form of a list of dictionaries.'.format(self.__class__.__name__))
-                    elif 'label' not in dictitem:
-                        raise KeyError('No antenna label specified in the dictionary item to be updated.')
-    
-                    if 'action' not in dictitem:
-                        raise KeyError('No action specified for update. Action key should be set to "add", "remove" or "modify".')
-                    elif dictitem['action'] == 'add':
-                        if dictitem['label'] in self.antennas:
-                            if verbose:
-                                print 'Antenna {0} for adding already exists in current instance of {1}. Skipping over to the next item to be updated.'.format(dictitem['label'], self.__class__.__name__)
-                        else:
-                            if verbose:
-                                print 'Adding antenna {0}...'.format(dictitem['label'])
-                            self.add_antennas(dictitem['antenna'])
-                            if 'grid_action' in dictitem:
-                                self.grid_convolve(pol=dictitem['gridpol'], ants=dictitem['antenna'], unconvolve_existing=False)
-                    elif dictitem['action'] == 'remove':
-                        if dictitem['label'] not in self.antennas:
-                            if verbose:
-                                print 'Antenna {0} for removal not found in current instance of {1}. Skipping over to the next item to be updated.'.format(dictitem['label'], self.__class__.__name__) 
-                        else:
-                            if verbose:
-                                print 'Removing antenna {0}...'.format(dictitem['label'])
-                            if 'grid_action' in dictitem:
-                                self.grid_unconvolve(dictitem['label'], dictitem['gridpol'])
-                            self.remove_antennas(dictitem['label'])
-                    elif dictitem['action'] == 'modify':
-                        if dictitem['label'] not in self.antennas:
-                            if verbose:
-                                print 'Antenna {0} for modification not found in current instance of {1}. Skipping over to the next item to be updated.'.format(dictitem['label'], self.__class__.__name__)
-                        else:
-                            if verbose:
-                                print 'Modifying antenna {0}...'.format(dictitem['label'])
-                            if 'Et_P1' not in dictitem: dictitem['Et_P1']=None
-                            if 'Et_P2' not in dictitem: dictitem['Et_P2']=None
-                            if 't' not in dictitem: dictitem['t']=None
-                            if 'timestamp' not in dictitem: dictitem['timestamp']=None
-                            if 'location' not in dictitem: dictitem['location']=None
-                            if 'wtsinfo_P1' not in dictitem: dictitem['wtsinfo_P1']=None
-                            if 'wtsinfo_P2' not in dictitem: dictitem['wtsinfo_P2']=None
-                            if 'flag_P1' not in dictitem: dictitem['flag_P1']=None
-                            if 'flag_P2' not in dictitem: dictitem['flag_P2']=None
-                            if 'gridfunc_freq' not in dictitem: dictitem['gridfunc_freq']=None
-                            if 'ref_freq' not in dictitem: dictitem['ref_freq']=None
-                            if 'pol_type' not in dictitem: dictitem['pol_type']=None
-                            if 'norm_wts' not in dictitem: dictitem['norm_wts']=False
-                            if 'gridmethod' not in dictitem: dictitem['gridmethod']='NN'
-                            if 'distNN' not in dictitem: dictitem['distNN']=NP.inf
-                            if 'maxmatch' not in dictitem: dictitem['maxmatch']=None
-                            if 'tol' not in dictitem: dictitem['tol']=None
-                            if 'delaydict_P1' not in dictitem: dictitem['delaydict_P1']=None
-                            if 'delaydict_P2' not in dictitem: dictitem['delaydict_P2']=None
-                            self.antennas[dictitem['label']].update(dictitem['label'], dictitem['Et_P1'], dictitem['Et_P2'], dictitem['t'], dictitem['timestamp'], dictitem['location'], dictitem['wtsinfo_P1'], dictitem['wtsinfo_P2'], dictitem['flag_P1'], dictitem['flag_P2'], dictitem['gridfunc_freq'], dictitem['delaydict_P1'], dictitem['delaydict_P2'], dictitem['ref_freq'], dictitem['pol_type'], verbose)
-                            if 'gric_action' in dictitem:
-                                self.grid_convolve(pol=dictitem['gridpol'], ants=dictitem['antenna'], unconvolve_existing=True, normalize=dictitem['norm_wts'], method=dictitem['gridmethod'], distNN=dictitem['distNN'], tol=dictitem['tol'], maxmatch=dictitem['maxmatch'])
-                    else:
-                        raise ValueError('Update action should be set to "add", "remove" or "modify".')
-
-            if 'antenna_array' in updates: # contains updates at 'antenna array' level
-                if not isinstance(updates['antenna_array'], dict):
-                    raise TypeError('Input parameter in updates for antenna array must be a dictionary with key "antenna_array"')
-                
-                if 'timestamp' in updates['antenna_array']:
-                    self.timestamp = updates['antenna_array']['timestamp']
-
-                if 'do_grid' in updates['antenna_array']:
-                    if isinstance(updates['antenna_array']['do_grid'], boolean):
-                        self.grid()
-                    else:
-                        raise TypeError('Value in key "do_grid" inside key "antenna_array" of input dictionary updates must be boolean.')
-
-        self.t = self.antennas.itervalues().next().t # Update time axis
-        self.f = self.antennas.itervalues().next().f # Update frequency axis
-
-    #############################################################################
-
-    def save(self, gridfile, pol=None, tabtype='BinTableHDU', antenna_save=True, 
-             antfile=None, overwrite=False, verbose=True):
-
-        """
-        -------------------------------------------------------------------------
-        Saves the antenna array information to disk. 
-
-        Inputs:
-
-        gridfile     [string] grid filename with full path. Will be appended 
-                     with '.fits' extension
-
-        Keyword Input(s):
-
-        pol          [string] indicates which polarization information to be 
-                     saved. Allowed values are 'P1', 'P2' or None (default). If 
-                     None, information on both polarizations are saved.
-                     
-        tabtype      [string] indicates table type for one of the extensions in 
-                     the FITS file. Allowed values are 'BinTableHDU' and 
-                     'TableHDU' for binary ascii tables respectively. Default is
-                     'BinTableHDU'.
-
-
-        antenna_save [boolean] indicates if information on individual antennas is
-                     to be saved. If True (default), individual antenna
-                     information is saved into filename given by antfile. If
-                     False, only grid information is saved.
-
-        antfile      [string] Filename to save the antenna information to. This 
-                     is appended with the antenna label and '.fits' extension. 
-                     If not provided, gridfile is used as the basename. antfile 
-                     is used only if antenna_save is set to True.
-
-        overwrite    [boolean] True indicates overwrite even if a file already 
-                     exists. Default = False (does not overwrite)
-                     
-        verbose      [boolean] If True (default), prints diagnostic and progress
-                     messages. If False, suppress printing such messages.
-        -------------------------------------------------------------------------
-        """
-
-        try:
-            gridfile
-        except NameError:
-            raise NameError('No filename provided. Aborting AntennaArray.save().')
-
-        filename = gridfile + '.fits'
-
-        if verbose:
-            print '\nSaving antenna array information...'
-            
-        hdulist = []
-        hdulist += [fits.PrimaryHDU()]
-        hdulist[0].header['f0'] = (self.f0, 'Center frequency (Hz)')
-        hdulist[0].header['tobs'] = (self.timestamp, 'Timestamp associated with observation.')
-        hdulist[0].header['EXTNAME'] = 'PRIMARY'
-
-        if verbose:
-            print '\tCreated a primary HDU.'
-
-        antpos_info = self.antenna_positions(sort=True)
-        cols = []
-        cols += [fits.Column(name='Antenna', format='8A', array=NP.asarray(antpos_info['antennas']))]
-        cols += [fits.Column(name='Position', format='3D', array=antpos_info['positions'])]
-        columns = fits.ColDefs(cols, tbtype=tabtype)
-        tbhdu = fits.new_table(columns)
-        tbhdu.header.set('EXTNAME', 'Antenna Positions')
-        hdulist += [tbhdu]
-        if verbose:
-            print '\tCreated an extension in Binary table format for antenna positions.'
-
-        hdulist += [fits.ImageHDU(self.f, name='FREQ')]
-        if verbose:
-            print '\t\tCreated an extension HDU of {0:0d} frequency channels'.format(len(self.f))
-
-        if (pol is None) or (pol == 'P1'):
-            if verbose:
-                print '\tWorking on polarization P1...'
-            if self.gridx_P1 is not None:
-                hdulist += [fits.ImageHDU(self.gridx_P1, name='gridx_P1')]
-                if verbose:
-                    print '\t\tCreated an extension HDU of x-coordinates of grid of size: {0[0]}x{0[1]}'.format(self.gridx_P1.shape)
-            if self.gridy_P1 is not None:
-                hdulist += [fits.ImageHDU(self.gridy_P1, name='gridy_P1')]
-                if verbose:
-                    print '\t\tCreated an extension HDU of y-coordinates of grid of size: {0[0]}x{0[1]}'.format(self.gridy_P1.shape)
-            if self.grid_illumination_P1 is not None:
-                hdulist += [fits.ImageHDU(self.grid_illumination_P1.real, name='grid_illumination_P1_real')]
-                hdulist += [fits.ImageHDU(self.grid_illumination_P1.imag, name='grid_illumination_P1_imag')]
-                if verbose:
-                    print "\t\tCreated separate extension HDUs of grid's illumination pattern \n\t\t\twith size {0[0]}x{0[1]}x{0[2]} for real and imaginary parts.".format(self.grid_illumination_P1.shape)
-            if self.grid_Ef_P1 is not None:
-                hdulist += [fits.ImageHDU(self.grid_Ef_P1.real, name='grid_Ef_P1_real')]
-                hdulist += [fits.ImageHDU(self.grid_Ef_P1.imag, name='grid_Ef_P1_imag')]
-                if verbose:
-                    print "\t\tCreated separate extension HDUs of grid's Electric field spectra of \n\t\t\tsize {0[0]}x{0[1]}x{0[2]} for real and imaginary parts.".format(self.grid_Ef_P1.shape)
-
-        if (pol is None) or (pol == 'P2'):
-            if verbose:
-                print '\tWorking on polarization P2...'
-            if self.gridx_P2 is not None:
-                hdulist += [fits.ImageHDU(self.gridx_P2, name='gridx_P2')]
-                if verbose:
-                    print '\t\tCreated an extension HDU of x-coordinates of grid of size: {0[0]}x{0[1]}'.format(self.gridx_P2.shape)
-            if self.gridy_P2 is not None:
-                hdulist += [fits.ImageHDU(self.gridy_P2, name='gridy_P2')]
-                if verbose:
-                    print '\t\tCreated an extension HDU of y-coordinates of grid of size: {0[0]}x{0[1]}'.format(self.gridy_P2.shape)
-            if self.grid_illumination_P2 is not None:
-                hdulist += [fits.ImageHDU(self.grid_illumination_P2.real, name='grid_illumination_P2_real')]
-                hdulist += [fits.ImageHDU(self.grid_illumination_P2.imag, name='grid_illumination_P2_imag')]
-                if verbose:
-                    print "\t\tCreated separate extension HDUs of grid's illumination pattern \n\t\t\twith size {0[0]}x{0[1]}x{0[2]} for real and imaginary parts.".format(self.grid_illumination_P2.shape)
-            if self.grid_Ef_P2 is not None:
-                hdulist += [fits.ImageHDU(self.grid_Ef_P2.real, name='grid_Ef_P2_real')]
-                hdulist += [fits.ImageHDU(self.grid_Ef_P2.imag, name='grid_Ef_P2_imag')]
-                if verbose:
-                    print "\t\tCreated separate extension HDUs of grid's Electric field spectra of \n\t\t\tsize {0[0]}x{0[1]}x{0[2]} for real and imaginary parts.".format(self.grid_Ef_P2.shape)
-
-        if verbose:
-            print '\tNow writing FITS file to disk:\n\t\t{0}'.format(filename)
-
-        hdu = fits.HDUList(hdulist)
-        hdu.writeto(filename, clobber=overwrite)
-
-        if verbose:
-            print '\tGridding data written successfully to FITS file on disk:\n\t\t{0}\n'.format(filename)
-
-        if antenna_save:
-            if antfile is None:
-                antfile = gridfile
-            for label in self.antennas:
-                if verbose:
-                    print 'Now calling save() method of antenna {0}...'.format(label)
-                self.antennas[label].save(antfile, tabtype=tabtype,
-                                          overwrite=overwrite, verbose=verbose)
-            if verbose:
-                print 'Successfully completed save() operation.'
-
 ################################################################################
 
 class CrossPolInfo:
@@ -2783,7 +118,8 @@ class CrossPolInfo:
 
     __str__()      Prints a summary of current attributes.
 
-    update_flags() Updates the flags based on current inputs
+    update_flags() Updates the flags based on current inputs and verifies and 
+                   updates flags based on current values of the electric field.
 
     update()       Updates the visibility time series and spectra for different
                    cross-polarizations
@@ -2800,7 +136,7 @@ class CrossPolInfo:
         of an interferometer. 
 
         Class attributes initialized are:
-        Vt, Vf, and flags
+        Vt, Vf, flags, internal attributes _init_flags_on and _init_data_on
      
         Read docstring of class PolInfo for details on these attributes.
         ------------------------------------------------------------------------
@@ -2809,6 +145,8 @@ class CrossPolInfo:
         self.Vt = {}
         self.Vf = {}
         self.flag = {}
+        self._init_flags_on = True
+        self._init_data_on = True
 
         if not isinstance(nsamples, int):
             raise TypeError('nsamples must be an integer')
@@ -2823,18 +161,19 @@ class CrossPolInfo:
             
             self.flag[pol] = True
 
-    ############################################################################ 
+    ############################################################################
 
     def __str__(self):
         return ' Instance of class "{0}" in module "{1}" \n flag (P11): {2} \n flag (P12): {3} \n flag (P21): {4} \n flag (P22): {5} '.format(self.__class__.__name__, self.__module__, self.flag['P11'], self.flag['P12'], self.flag['P21'], self.flag['P22'])
 
-    ############################################################################ 
+    ############################################################################
 
-    def update_flags(self, flags=None):
+    def update_flags(self, flags=None, verify=True):
 
         """
         ------------------------------------------------------------------------
-        Updates the flags based on current inputs
+        Updates the flags based on current inputs and verifies and updates flags
+        based on current values of the visibilities.
     
         Inputs:
     
@@ -2843,8 +182,19 @@ class CrossPolInfo:
                  and 'P22'. Default=None means no new flagging to be applied. If 
                  the value under the cross-polarization key is True, it is to be 
                  flagged and if False, it is to be unflagged.
+
+        verify   [boolean] If True, verify and update the flags, if necessary.
+                 Visibilities are checked for NaN values and if found, the
+                 flag in the corresponding polarization is set to True. 
+                 Default=True. 
+
+        Flag verification and re-updating happens if flags is set to None or if
+        verify is set to True.
         ------------------------------------------------------------------------
         """
+
+        if not isinstance(verify, bool):
+            raise TypeError('Input keyword verify must be of boolean type')
 
         if flags is not None:
             if not isinstance(flags, dict):
@@ -2855,10 +205,22 @@ class CrossPolInfo:
                         self.flag[pol] = flags[pol]
                     else:
                         raise TypeError('flag values must be boolean')
+                    self._init_flags_on = False
 
-    ############################################################################ 
+            # self.flags = {pol: flags[pol] for pol in ['P11', 'P12', 'P21', 'P22'] if pol in flags}
+            # self._init_flags_on = False
+            
+        # Perform flag verification and re-update current flags
+        if verify or (flags is None):
+            if not self._init_data_on:
+                for pol in ['P11', 'P12', 'P21', 'P22']:
+                    if NP.any(NP.isnan(self.Vt[pol])):
+                        self.flag[pol] = True
+                self._init_flags_on = False
+                    
+    ############################################################################
 
-    def update(self, Vt=None, Vf=None, flags=None):
+    def update(self, Vt=None, Vf=None, flags=None, verify=False):
         
         """
         ------------------------------------------------------------------------
@@ -2878,11 +240,19 @@ class CrossPolInfo:
         flag   [dictionary] holds boolean flags for each of the 4 cross-
                polarizations which are stored under keys 'P11', 'P12', 'P21', 
                and 'P22'. Default=None means no updates for flags.
+
+        verify [boolean] If True, verify and update the flags, if necessary.
+               Visibilities are checked for NaN values and if found, the
+               flag in the corresponding polarization is set to True. 
+               Default=False. 
         ------------------------------------------------------------------------
         """
 
-        if flags is not None:
-            self.update_flags(flags)
+        current_flags = copy.deepcopy(self.flag)
+        if flags is None:
+            flags = copy.deepcopy(current_flags)
+        # if flags is not None:
+        #     self.update_flags(flags)
 
         if Vt is not None:
             if isinstance(Vt, dict):
@@ -2891,7 +261,9 @@ class CrossPolInfo:
                         self.Vt[pol] = Vt[pol]
                         if NP.any(NP.isnan(Vt[pol])):
                             # self.Vt[pol] = NP.nan
-                            self.flag[pol] = True
+                            flags[pol] = True
+                            # self.flag[pol] = True
+                        self._init_data_on = False
             else:
                 raise TypeError('Input parameter Vt must be a dictionary')
 
@@ -2902,11 +274,16 @@ class CrossPolInfo:
                         self.Vf[pol] = Vf[pol]
                         if NP.any(NP.isnan(Vf[pol])):
                             # self.Vf[pol] = NP.nan
-                            self.flag[pol] = True
+                            flags[pol] = True
+                            # self.flag[pol] = True
+                        self._init_data_on = False
             else:
                 raise TypeError('Input parameter Vf must be a dictionary')
 
-#################################################################################
+        # Update flags
+        self.update_flags(flags=flags, verify=verify)
+        
+################################################################################
 
 class Interferometer:
 
@@ -2934,6 +311,9 @@ class Interferometer:
     timestamp:  [Scalar] String or float representing the timestamp for the 
                 current attributes
 
+    timestamps  [list] consists of a list of timestamps common to both of the
+                individual antennas in the antenna pair
+
     t:          [vector] The time axis for the time series of electric fields
 
     f:          [vector] Frequency axis obtained by a Fourier Transform of
@@ -2941,8 +321,50 @@ class Interferometer:
 
     f0:         [Scalar] Center frequency in Hz.
 
-    crosspol:   [Instance of class CrossPolInfo] polarization information for the 
-                interferometer. Read docstring of class CrossPolInfo for details
+    crosspol:   [Instance of class CrossPolInfo] polarization information for 
+                the interferometer. Read docstring of class CrossPolInfo for 
+                details
+
+    Vt_stack    [dictionary] holds a stack of complex visibility time series 
+                measured at various time stamps under 4 polarizations which are 
+                stored under keys 'P11', 'P12', 'P21', and 'P22'. Each value 
+                under the polarization key is stored as numpy array with rows 
+                equal to the number of timestamps and columns equal to the 
+                number of samples in a timeseries
+                
+    Vf_stack    [dictionary] holds a stack of complex visibility spectra 
+                measured at various time stamps under 4 polarizations which are 
+                stored under keys 'P11', 'P12', 'P21' and 'P22'. Each value 
+                under the polarization key is stored as numpy array with rows 
+                equal to the number of timestamps and columns equal to the 
+                number of spectral channels
+
+    flag_stack  [dictionary] holds a stack of flags appropriate for different 
+                time stamps as a numpy array under 4 polarizations which are 
+                stored under keys 'P11', 'P12', 'P21' and 'P22'. Each value 
+                under the polarization key is stored as numpy array with 
+                number of elements equal to the number of timestamps
+
+    Vf_avg      [dictionary] holds in keys 'P11', 'P12', 'P21', 'P22' for each
+                polarization the stacked and averaged complex visibility spectra
+                as a numpy array where the number of rows is the number of time
+                bins after averaging visibilities in those time bins and the 
+                number of columns is equal to the number of spectral channels 
+                (same as in Vf_stack)
+
+    twts        [dictionary] holds in keys 'P11', 'P12', 'P21', 'P22' for each
+                polarization the number of unflagged timestamps in each time 
+                bin that contributed to the averaging of visibilities stored in
+                Vf_avg. Each array size equal to the number of rows in Vf_avg
+                under the corresponding polarization.
+
+    tbinsize    [scalar or dictionary] Contains bin size of timestamps while
+                stacking. Default = None means all visibility spectra over all
+                timestamps are averaged. If scalar, the same (positive) value 
+                applies to all polarizations. If dictionary, timestamp bin size
+                (positive) is provided under each key 'P11', 'P12', 'P21', 
+                'P22'. If any of the keys is missing the visibilities for that 
+                polarization are averaged over all timestamps.
 
     wts:        [dictionary] The gridding weights for interferometer. Different 
                 cross-polarizations 'P11', 'P12', 'P21' and 'P22' form the keys 
@@ -2951,25 +373,25 @@ class Interferometer:
                 where each vector corresponds to a frequency channel. See 
                 wtspos_scale for more requirements.
 
-    wtspos      [dictionary] two-dimensional locations of the gridding weights in
-                wts for each cross-polarization under keys 'P11', 'P12', 'P21',
-                and 'P22'. The locations are in ENU coordinate system as a list of
-                2-column numpy arrays. Each 2-column array in the list is the 
-                position of the gridding weights for a corresponding frequency 
-                channel. The size of the list must be the same as wts and the 
-                number of channels. Units are in number of wavelengths. See 
-                wtspos_scale for more requirements.
+    wtspos      [dictionary] two-dimensional locations of the gridding weights 
+                in wts for each cross-polarization under keys 'P11', 'P12', 
+                'P21', and 'P22'. The locations are in ENU coordinate system 
+                as a list of 2-column numpy arrays. Each 2-column array in the 
+                list is the position of the gridding weights for a corresponding
+                frequency channel. The size of the list must be the same as wts
+                and the number of channels. Units are in number of wavelengths.
+                See wtspos_scale for more requirements.
 
-    wtspos_scale [dictionary] The scaling of weights is specified for each cross-
-                 polarization under one of the keys 'P11', 'P12', 'P21' or 'P22'. 
-                 The values under these keys can be either None (default) or 
-                 'scale'. If None, numpy vectors in wts and wtspos under
-                 corresponding keys are provided for each frequency channel. If 
-                 set to 'scale' wts and wtspos contain a list of only one 
-                 numpy array corresponding to a reference frequency. This is
-                 scaled internally to correspond to the first channel.
-                 The gridding positions are correspondingly scaled to all the 
-                 frequency channels.
+    wtspos_scale [dictionary] The scaling of weights is specified for each 
+                 cross-polarization under one of the keys 'P11', 'P12', 'P21' 
+                 or 'P22'. The values under these keys can be either None 
+                 (default) or 'scale'. If None, numpy vectors in wts and 
+                 wtspos under corresponding keys are provided for each 
+                 frequency channel. If set to 'scale' wts and wtspos contain a 
+                 list of only one numpy array corresponding to a reference 
+                 frequency. This is scaled internally to correspond to the 
+                 first channel. The gridding positions are correspondingly 
+                 scaled to all the frequency channels.
 
     blc          [2-element numpy array] Bottom Left corner where the
                  interferometer contributes non-zero weight to the grid. Same 
@@ -2993,6 +415,11 @@ class Interferometer:
                  using antenna information in attributes A1 and A2. All four 
                  cross polarizations are computed.
 
+    FX_pp()      Computes the visibility spectrum using an FX operation, 
+                 i.e., Fourier transform (F) followed by multiplication (X). 
+                 All four cross polarizations are computed. To be used 
+                 internally for parallel processing and not by the user directly
+
     XF()         Computes the visibility spectrum using an XF operation, 
                  i.e., corss-correlation (X) followed by Fourier transform 
                  (F) using antenna information in attributes A1 and A2. All 
@@ -3004,9 +431,45 @@ class Interferometer:
     t2f()        Computes the visibility spectra from the time-series for each 
                  cross-polarization
 
+    FX_on_stack()
+                 Computes the visibility spectrum using an FX operation on the 
+                 time-stacked electric fields in the individual antennas in the 
+                 pair, i.e., Fourier transform (F) followed by multiplication 
+                 (X). All four cross-polarizations are computed.
+
+    flags_on_stack()
+                 Computes the visibility flags from the time-stacked electric 
+                 fields for the common timestamps between the pair of antennas. 
+                 All four cross-polarizations are computed.
+
+    XF_on_stack()
+                 Computes the visibility lags using an XF operation on the 
+                 time-stacked electric fields time-series in the individual 
+                 antennas in the pair, i.e., Cross-correlation (X) followed by 
+                 Fourier transform (F). All four cross-polarizations are 
+                 computed.
+
+    f2t_on_stack()
+                 Computes the visibility lags from the spectra for each 
+                 cross-polarization from time-stacked visibilities
+
+    t2f_on_stack() 
+                 Computes the visibility spectra from the time-series for each 
+                 cross-polarization from time-stacked visibility lags
+
     flip_antenna_pair()
                  Flip the antenna pair in the interferometer. This inverts the
                  baseline vector and conjugates the visibility spectra
+
+    refresh_antenna_pairs()
+                 Update the individual antenna instances of the antenna pair 
+                 forming the interferometer with provided values
+
+    get_visibilities()
+                 Returns the visibilities based on selection criteria on 
+                 timestamp flags, timestamps and frequency channel indices 
+                 and the type of data (most recent, stack or averaged 
+                 visibilities)
 
     update_flags()
                  Updates flags for cross-polarizations from component antenna
@@ -3016,6 +479,18 @@ class Interferometer:
     update():    Updates the interferometer instance with newer attribute values
                  Updates the visibility spectrum and timeseries and applies FX
                  or XF operation.
+
+    update_pp()  Updates the interferometer instance with newer attribute 
+                 values. Updates the visibility spectrum and timeseries and 
+                 applies FX or XF operation. Used internally when parallel 
+                 processing is used. Not to be used by the user directly.
+
+    stack()      Stacks and computes visibilities and flags from the individual 
+                 antennas in the pair.
+
+    accumulate() Accumulate and average visibility spectra across timestamps 
+                 under different polarizations depending on the time bin size 
+                 for the corresponding polarization.
 
     save():      Saves the interferometer information to disk. Needs serious 
                  development. 
@@ -3033,7 +508,8 @@ class Interferometer:
 
         Class attributes initialized are:
         label, latitude, location, pol, t, timestamp, f0, f, wts, wtspos, 
-        wtspos_scale, gridinfo, blc, trc
+        wtspos_scale, gridinfo, blc, trc, timestamps, Vt_stack, Vf_stack, 
+        flag_stack, Vf_avg, twts, tbinsize
      
         Read docstring of class Antenna for details on these attributes.
         ------------------------------------------------------------------------
@@ -3073,14 +549,31 @@ class Interferometer:
 
         self.t = 0.0
         self.timestamp = 0.0
+        self.timestamps = []
         
         self.crosspol = CrossPolInfo(self.f.size)
+
+        self.Vt_stack = {}
+        self.Vf_stack = {}
+        self.flag_stack = {}
+
+        self.Vf_avg = {}
+        self.twts = {}
+        self.tbinsize = None
 
         self.wtspos = {}
         self.wts = {}
         self.wtspos_scale = {}
         self._gridinfo = {}
+
         for pol in ['P11', 'P12', 'P21', 'P22']:
+            self.Vt_stack[pol] = None
+            self.Vf_stack[pol] = None
+            self.flag_stack[pol] = NP.asarray([])
+
+            self.Vf_avg[pol] = None
+            self.twts[pol] = None
+
             self.wtspos[pol] = []
             self.wts[pol] = []
             self.wtspos_scale[pol] = None
@@ -3089,12 +582,12 @@ class Interferometer:
         self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1)
         self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1)
 
-    #################################################################################
+    ############################################################################
 
     def __str__(self):
         return ' Instance of class "{0}" in module "{1}" \n label: ({2[0]}, {2[1]}) \n location: {3}'.format(self.__class__.__name__, self.__module__, self.label, self.location.__str__())
 
-    #################################################################################
+    ############################################################################
 
     def channels(self):
 
@@ -3111,22 +604,20 @@ class Interferometer:
 
         return DSP.spectax(self.A1.t.size + self.A2.t.size, resolution=self.A1.t[1]-self.A1.t[0], shift=True)
 
-    #############################################################################
+    ############################################################################
 
     def FX(self):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Computes the visibility spectrum using an FX operation, i.e., Fourier 
         transform (F) followed by multiplication (X). All four cross
         polarizations are computed.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         self.t = NP.hstack((self.A1.t.ravel(), self.A1.t.max()+self.A2.t.ravel()))
         self.f = self.f0 + self.channels()
-
-        self.update_flags()
 
         self.crosspol.Vf['P11'] = self.A1.antpol.Ef['P1'] * self.A2.antpol.Ef['P1'].conjugate()
         self.crosspol.Vf['P12'] = self.A1.antpol.Ef['P1'] * self.A2.antpol.Ef['P2'].conjugate()
@@ -3134,23 +625,24 @@ class Interferometer:
         self.crosspol.Vf['P22'] = self.A1.antpol.Ef['P2'] * self.A2.antpol.Ef['P2'].conjugate()
 
         self.f2t()
+        self.crosspol._init_data_on = False
+        self.update_flags(flags=None, stack=False, verify=True)
 
-    #############################################################################
+    ############################################################################
 
-    def FX_new(self):
+    def FX_pp(self):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Computes the visibility spectrum using an FX operation, i.e., Fourier 
         transform (F) followed by multiplication (X). All four cross
-        polarizations are computed.
-        -------------------------------------------------------------------------
+        polarizations are computed. To be used internally for parallel 
+        processing and not by the user directly
+        ------------------------------------------------------------------------
         """
 
         self.t = NP.hstack((self.A1.t.ravel(), self.A1.t.max()+self.A2.t.ravel()))
         self.f = self.f0 + self.channels()
-
-        self.update_flags()
 
         self.crosspol.Vf['P11'] = self.A1.antpol.Ef['P1'] * self.A2.antpol.Ef['P1'].conjugate()
         self.crosspol.Vf['P12'] = self.A1.antpol.Ef['P1'] * self.A2.antpol.Ef['P2'].conjugate()
@@ -3158,25 +650,25 @@ class Interferometer:
         self.crosspol.Vf['P22'] = self.A1.antpol.Ef['P2'] * self.A2.antpol.Ef['P2'].conjugate()
 
         self.f2t()
-
+        self.crosspol._init_data_on = False
+        self.update_flags(flags=None, stack=False, verify=True)
+        
         return self
 
-    #############################################################################
+    ############################################################################
 
     def XF(self):
 
         """
-        -------------------------------------------------------------------------
-        Computes the visibility spectrum using an XF operation, i.e., Correlation 
-        (X) followed by Fourier transform (X). All four cross polarizations are
-        computed.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
+        Computes the visibility spectrum using an XF operation, i.e., 
+        Correlation (X) followed by Fourier transform (X). All four cross 
+        polarizations are computed.
+        ------------------------------------------------------------------------
         """
 
         self.t = NP.hstack((self.A1.t.ravel(), self.A1.t.max()+self.A2.t.ravel()))
         self.f = self.f0 + self.channels()
-
-        self.update_flags()
 
         self.crosspol.Vt['P11'] = DSP.XC(self.A1.antpol.Et['P1'], self.A2.antpol.Et['P1'], shift=False)
         self.crosspol.Vt['P12'] = DSP.XC(self.A1.antpol.Et['P1'], self.A2.antpol.Et['P2'], shift=False)
@@ -3184,46 +676,167 @@ class Interferometer:
         self.crosspol.Vt['P22'] = DSP.XC(self.A1.antpol.Et['P2'], self.A2.antpol.Et['P2'], shift=False)
 
         self.t2f()
+        self.crosspol._init_data_on = False
+        self.update_flags(flags=None, stack=False, verify=True)
 
-    #############################################################################
+    ############################################################################
 
     def f2t(self):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Computes the visibility time-series from the spectra for each cross-
         polarization
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
         
         for pol in ['P11', 'P12', 'P21', 'P22']:
 
             self.crosspol.Vt[pol] = DSP.FT1D(NP.fft.fftshift(self.crosspol.Vf[pol]), inverse=True, shift=True, verbose=False)
 
-    #############################################################################
+    ############################################################################
 
     def t2f(self):
         
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Computes the visibility spectra from the time-series for each cross-
         polarization
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         for pol in ['P11', 'P12', 'P21', 'P22']:
 
             self.crosspol.Vf[pol] = DSP.FT1D(NP.fft.ifftshift(self.crosspol.Vt[pol]), shift=True, verbose=False)
 
-    ############################################################################ 
+    ############################################################################
+
+    def FX_on_stack(self):
+
+        """
+        ------------------------------------------------------------------------
+        Computes the visibility spectrum using an FX operation on the 
+        time-stacked electric fields in the individual antennas in the pair, 
+        i.e., Fourier transform (F) followed by multiplication (X). All four 
+        cross-polarizations are computed.
+        ------------------------------------------------------------------------
+        """
+
+        self.t = NP.hstack((self.A1.t.ravel(), self.A1.t.max()+self.A2.t.ravel()))
+        self.f = self.f0 + self.channels()
+
+        ts1 = NP.asarray(self.A1.timestamps)
+        ts2 = NP.asarray(self.A2.timestamps)
+        common_ts = NP.intersect1d(ts1, ts2, assume_unique=True)
+        ind1 = NP.in1d(ts1, common_ts, assume_unique=True)
+        ind2 = NP.in1d(ts2, common_ts, assume_unique=True)
+
+        self.Vf_stack['P11'] = self.A1.Ef_stack['P1'][ind1,:] * self.A2.Ef_stack['P1'][ind2,:].conjugate()
+        self.Vf_stack['P12'] = self.A1.Ef_stack['P1'][ind1,:] * self.A2.Ef_stack['P2'][ind2,:].conjugate()
+        self.Vf_stack['P21'] = self.A1.Ef_stack['P2'][ind1,:] * self.A2.Ef_stack['P1'][ind2,:].conjugate()
+        self.Vf_stack['P22'] = self.A1.Ef_stack['P2'][ind1,:] * self.A2.Ef_stack['P2'][ind2,:].conjugate()
+
+        self.f2t_on_stack()
+
+    ############################################################################
+
+    def flags_on_stack(self):
+        
+        """
+        ------------------------------------------------------------------------
+        Computes the visibility flags from the time-stacked electric fields for 
+        the common timestamps between the pair of antennas. All four 
+        cross-polarizations are computed.
+        ------------------------------------------------------------------------
+        """
+
+        ts1 = NP.asarray(self.A1.timestamps)
+        ts2 = NP.asarray(self.A2.timestamps)
+        common_ts = NP.intersect1d(ts1, ts2, assume_unique=True)
+        ind1 = NP.in1d(ts1, common_ts, assume_unique=True)
+        ind2 = NP.in1d(ts2, common_ts, assume_unique=True)
+
+        self.flag_stack['P11'] = NP.logical_or(self.A1.flag_stack['P1'][ind1],
+                                               self.A2.flag_stack['P1'][ind2])
+        self.flag_stack['P12'] = NP.logical_or(self.A1.flag_stack['P1'][ind1],
+                                               self.A2.flag_stack['P2'][ind2])
+        self.flag_stack['P21'] = NP.logical_or(self.A1.flag_stack['P2'][ind1],
+                                               self.A2.flag_stack['P1'][ind2])
+        self.flag_stack['P22'] = NP.logical_or(self.A1.flag_stack['P2'][ind1],
+                                               self.A2.flag_stack['P2'][ind2])
+
+    ############################################################################
+    
+    def XF_on_stack(self):
+
+        """
+        ------------------------------------------------------------------------
+        Computes the visibility lags using an XF operation on the time-stacked 
+        electric fields time-series in the individual antennas in the pair, 
+        i.e., Cross-correlation (X) followed by Fourier transform (F). All four 
+        cross-polarizations are computed. 
+
+        THIS WILL NOT WORK IN ITS CURRENT FORM BECAUSE THE ENGINE OF THIS IS 
+        THE CORRELATE FUNCTION OF NUMPY WRAPPED INSIDE XC() IN MY_DSP_MODULE 
+        AND CURRENTLY IT CAN HANDLE ONLY 1D ARRAYS. NEEDS SERIOUS DEVELOPMENT!
+        ------------------------------------------------------------------------
+        """
+
+        self.t = NP.hstack((self.A1.t.ravel(), self.A1.t.max()+self.A2.t.ravel()))
+        self.f = self.f0 + self.channels()
+
+        ts1 = NP.asarray(self.A1.timestamps)
+        ts2 = NP.asarray(self.A2.timestamps)
+        common_ts = NP.intersect1d(ts1, ts2, assume_unique=True)
+        ind1 = NP.in1d(ts1, common_ts, assume_unique=True)
+        ind2 = NP.in1d(ts2, common_ts, assume_unique=True)
+
+        self.Vt_stack['P11'] = DSP.XC(self.A1.Et_stack['P1'], self.A2.Et_stack['P1'], shift=False)
+        self.Vt_stack['P12'] = DSP.XC(self.A1.Et_stack['P1'], self.A2.Et_stack['P2'], shift=False)
+        self.Vt_stack['P21'] = DSP.XC(self.A1.Et_stack['P2'], self.A2.Et_stack['P1'], shift=False)
+        self.Vt_stack['P22'] = DSP.XC(self.A1.Et_stack['P2'], self.A2.Et_stack['P2'], shift=False)
+
+        self.t2f_on_stack()
+
+    ############################################################################
+
+    def f2t_on_stack(self):
+
+        """
+        ------------------------------------------------------------------------
+        Computes the visibility lags from the spectra for each cross-
+        polarization from time-stacked visibilities
+        ------------------------------------------------------------------------
+        """
+        for pol in ['P11', 'P12', 'P21', 'P22']:
+            self.Vt_stack[pol] = DSP.FT1D(NP.fft.fftshift(self.Vf_stack[pol]),
+                                          ax=1, inverse=True, shift=True,
+                                          verbose=False)
+
+    ############################################################################
+
+    def t2f_on_stack(self):
+        
+        """
+        ------------------------------------------------------------------------
+        Computes the visibility spectra from the time-series for each cross-
+        polarization from time-stacked visibility lags
+        ------------------------------------------------------------------------
+        """
+
+        for pol in ['P11', 'P12', 'P21', 'P22']:
+            self.Vf_stack[pol] = DSP.FT1D(NP.fft.ifftshift(self.Vt_stack[pol]),
+                                          ax=1, shift=True, verbose=False)
+
+    ############################################################################
 
     def flip_antenna_pair(self):
         
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Flip the antenna pair in the interferometer. This inverts the baseline
         vector and conjugates the visibility spectra
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         self.A1, self.A2 = self.A2, self.A1 # Flip antenna instances
@@ -3241,7 +854,209 @@ class Interferometer:
        
     ############################################################################
 
-    def update_flags(self, flags=None):
+    def refresh_antenna_pairs(self, A1=None, A2=None):
+
+        """
+        ------------------------------------------------------------------------
+        Update the individual antenna instances of the antenna pair forming
+        the interferometer with provided values
+
+        Inputs:
+
+        A1   [instance of class Antenna] first antenna instance in the 
+             antenna pair corresponding to attribute A1. Default=None (no 
+             update for attribute A1)
+
+        A2   [instance of class Antenna] first antenna instance in the 
+             antenna pair corresponding to attribute A2. Default=None (no 
+             update for attribute A2)
+        ------------------------------------------------------------------------
+        """
+
+        if isinstance(A1, Antenna):
+            self.A1 = A1
+        else:
+            raise TypeError('Input A1 must be an instance of class Antenna')
+
+        if isinstance(A2, Antenna):
+            self.A2 = A2
+        else:
+            raise TypeError('Input A2 must be an instance of class Antenna')
+
+    ############################################################################
+
+    def get_visibilities(self, pol, flag=None, tselect=None, fselect=None,
+                         datapool=None):
+
+        """
+        ------------------------------------------------------------------------
+        Returns the visibilities based on selection criteria on timestamp 
+        flags, timestamps and frequency channel indices and the type of data
+        (most recent, stack or averaged visibilities)
+
+        Inputs:
+
+        pol      [string] select baselines of this polarization that are either 
+                 flagged or unflagged as specified by input parameter flag. 
+                 Allowed values are 'P11', 'P12', 'P21', and 'P22'. Only one of
+                 these values must be specified.
+
+        flag     [boolean] If False, return visibilities of unflagged 
+                 timestamps, otherwise return flagged ones. Default=None means 
+                 all visibilities independent of flagging are returned. This 
+                 flagging refers to that along the timestamp axis under each
+                 polarization
+ 
+        tselect  [scalar, list, numpy array] timestamp index for visibilities
+                 selection. For most recent visibility, it must be set to -1.
+                 For all other selections, indices in tselect must be in the 
+                 valid range of indices along time axis for stacked and 
+                 averaged visibilities. Default=None means most recent data is
+                 selected. 
+
+        fselect  [scalar, list, numpy array] frequency channel index for 
+                 visibilities selection. Indices must be in the valid range of
+                 indices along the frequency axis for visibilities. 
+                 Default=None selects all frequency channels
+
+        datapool [string] denotes the data pool from which visibilities are to
+                 be selected. Accepted values are 'current', 'stack', 'avg' and
+                 None (default, same as 'current'). If set to None or 
+                 'current', the value in tselect is ignored and only 
+                 visibilities of the most recent timestamp are selected. If set
+                 to None or 'current' the attribute Vf_stack is checked first 
+                 and if unavailable, attribute crosspol.Vf is used. For 'stack'
+                 and 'avg', attributes Vf_stack and Vf_avg are used 
+                 respectively
+
+        Output:
+
+        outdict  [dictionary] consists of visibilities information under the 
+                 following keys:
+
+                 'label'        [tuple] interferometer label as a tuple of 
+                                individual antenna labels
+                 'pol'          [string] polarization string, one of 'P11', 
+                                'P12', 'P21', or 'P22'
+                 'visibilities' [numpy array] selected visibilities spectra
+                                with dimensions n_ts x nchan which
+                                are in time-frequency order. If no
+                                visibilities are found satisfying the selection 
+                                criteria, the value under this key is set to 
+                                None.
+                 'twts'         [numpy array] weights corresponding to the time
+                                axis in the selected visibilities. These 
+                                weights are determined by flagging of 
+                                timestamps. A zero weight indicates unflagged 
+                                visibilities were not found for that timestamp. 
+                                A non-zero weight indicates how many unflagged
+                                visibilities were found for that time bin (in
+                                case of averaged visibilities) or timestamp. 
+                                If no visibilities are found satisfying the 
+                                selection criteria, the value under this key 
+                                is set to None.
+        ------------------------------------------------------------------------
+        """
+
+        try: 
+            pol 
+        except NameError:
+            raise NameError('Input parameter pol must be specified.')
+
+        if not isinstance(pol, str):
+            raise TypeError('Input parameter must be a string')
+        
+        if not pol in ['P11', 'P12', 'P21', 'P22']:
+            raise ValueError('Invalid specification for input parameter pol')
+
+        if datapool is None:
+            n_timestamps = 1
+            datapool = 'current'
+        elif datapool == 'stack':
+            n_timestamps = len(self.timestamps)
+        elif datapool == 'avg':
+            n_timestamps = self.Vf_avg[pol].shape[0]
+        elif datapool == 'current':
+            n_timestamps = 1
+        else:
+            raise ValueError('Invalid datapool specified')
+
+        if tselect is None:
+            tsind = NP.asarray(-1).reshape(-1)  # Selects most recent data
+        elif isinstance(tselect, (int, float, list, NP.ndarray)):
+            tsind = NP.asarray(tselect).ravel()
+            tsind = tsind.astype(NP.int)
+            if tsind.size == 1:
+                if (tsind < -1) or (tsind >= n_timestamps):
+                    tsind = NP.asarray(-1).reshape(-1)
+            else:
+                if NP.any(tsind < 0) or NP.any(tsind >= n_timestamps):
+                    raise IndexError('Timestamp indices outside available range for the specified datapool')
+        else:
+            raise TypeError('tselect must be None, integer, float, list or numpy array for visibilities selection')
+
+        if fselect is None:
+            chans = NP.arange(self.f.size)  # Selects all channels
+        elif isinstance(fselect, (int, float, list, NP.ndarray)):
+            chans = NP.asarray(fselect).ravel()
+            chans = chans.astype(NP.int)
+            if NP.any(chans < 0) or NP.any(chans >= self.f.size):
+                raise IndexError('Channel indices outside available range')
+        else:
+            raise TypeError('fselect must be None, integer, float, list or numpy array for visibilities selection')
+
+        select_ind = NP.ix_(tsind, chans)
+
+        outdict = {}
+        outdict['pol'] = pol
+        outdict['twts'] = None
+        outdict['label'] = self.label
+        outdict['visibilities'] = None
+        
+        if datapool == 'current':
+            if self.Vf_stack[pol] is not None:
+                outdict['visibilities'] = self.Vf_stack[pol][-1,chans].reshape(1,chans.size)
+                outdict['twts'] = NP.logical_not(NP.asarray(self.flag_stack[pol][-1]).astype(NP.bool).reshape(-1)).astype(NP.float)
+            else:
+                outdict['visibilities'] = self.crosspol.Vf[pol][chans].reshape(1,chans.size)
+                outdict['twts'] = NP.logical_not(NP.asarray(self.crosspol.flag[pol]).astype(NP.bool).reshape(-1)).astype(NP.float)
+        elif datapool == 'stack':
+            if self.Vf_stack[pol] is not None:
+                outdict['visibilities'] = self.Vf_stack[pol][select_ind].reshape(tsind.size,chans.size)
+                outdict['twts'] = NP.logical_not(NP.asarray(self.flag_stack[pol][tsind]).astype(NP.bool).reshape(-1)).astype(NP.float)
+            else:
+                raise ValueError('Attribute Vf_stack has not been initialized to obtain visibilities from. Consider running method stack()')
+        else:
+            if self.Vf_avg[pol] is not None:
+                outdict['visibilities'] = self.Vf_avg[pol][select_ind].reshape(tsind.size,chans.size)
+                outdict['twts'] = NP.asarray(self.twts[pol][tsind]).reshape(-1)
+            else:
+                raise ValueError('Attribute Vf_avg has not been initialized to obtain visibilities from. Consider running methods stack() and accumulate()')
+
+        if flag is not None:
+            if not isinstance(flag, bool):
+                raise TypeError('flag keyword has to be a Boolean value.')
+
+            if flag:
+                if NP.sum(outdict['twts'] == 0) == 0:
+                    outdict['twts'] = None
+                    outdict['visibilities'] = None
+                else:
+                    outdict['visibilities'] = outdict['visibilities'][outdict['twts']==0,:].reshape(-1,chans.size)
+                    outdict['twts'] = outdict['twts'][outdict['twts']==0].reshape(-1,1)
+            else:
+                if NP.sum(outdict['twts'] > 0) == 0:
+                    outdict['twts'] = None
+                    outdict['visibilities'] = None
+                else:
+                    outdict['visibilities'] = outdict['visibilities'][outdict['twts']>0,:].reshape(-1,chans.size)
+                    outdict['twts'] = outdict['twts'][outdict['twts']>0].reshape(-1,1)
+
+        return outdict
+                
+    ############################################################################
+
+    def update_flags(self, flags=None, stack=False, verify=True):
 
         """
         ------------------------------------------------------------------------
@@ -3254,36 +1069,72 @@ class Interferometer:
         flags  [dictionary] boolean flags for each of the 4 cross-polarizations 
                of the interferometer which are stored under keys 'P11', 'P12',
                'P21', and 'P22'. Default=None means no updates for flags.
+
+        stack  [boolean] If True, appends the updated flag to the
+               end of the stack of flags as a function of timestamp. If False,
+               updates the last flag in the stack with the updated flag and 
+               does not append. Default=False
+
+        verify [boolean] If True, verify and update the flags, if necessary.
+               Visibilities are checked for NaN values and if found, the
+               flag in the corresponding polarization is set to True. Flags of
+               individual antennas forming a pair are checked and transferred
+               to the visibility flags. Default=True 
         ------------------------------------------------------------------------
         """
 
-        for cpol in ['P11', 'P12', 'P21', 'P22']:
-            self.crosspol.flag[cpol] = False
-
-        # Flags determined from antenna level
-
-        if self.A1.antpol.flag['P1'] or self.A2.antpol.flag['P1']:
-            self.crosspol.flag['P11'] = True
-        if self.A1.antpol.flag['P2'] or self.A2.antpol.flag['P1']:
-            self.crosspol.flag['P21'] = True
-        if self.A1.antpol.flag['P1'] or self.A2.antpol.flag['P2']:
-            self.crosspol.flag['P12'] = True
-        if self.A1.antpol.flag['P2'] or self.A2.antpol.flag['P2']:
-            self.crosspol.flag['P22'] = True
-
+        # By default carry over the flags from previous timestamp
+        # unless updated in this timestamp as below
         # Flags determined from interferometer level
 
-        if flags is not None:
-            self.crosspol.update_flags(flags)
+        if flags is None:
+            if self.crosspol._init_flags_on:  # begin with all flags set to False for first time update of flags
+                flags = {pol: False for pol in ['P11', 'P12', 'P21', 'P22']}
+            else:  # for non-first time updates carry over flags from last timestamp and process
+                flags = copy.deepcopy(self.crosspol.flag)
+
+            # now update flags based on current antenna flags
+            if self.A1.antpol.flag['P1'] or self.A2.antpol.flag['P1']:
+                flags['P11'] = True
+            if self.A1.antpol.flag['P2'] or self.A2.antpol.flag['P1']:
+                flags['P21'] = True
+            if self.A1.antpol.flag['P1'] or self.A2.antpol.flag['P2']:
+                flags['P12'] = True
+            if self.A1.antpol.flag['P2'] or self.A2.antpol.flag['P2']:
+                flags['P22'] = True
+
+        if verify:  # Verify provided flags or default flags created above
+            if self.A1.antpol.flag['P1'] or self.A2.antpol.flag['P1']:
+                flags['P11'] = True
+            if self.A1.antpol.flag['P2'] or self.A2.antpol.flag['P1']:
+                flags['P21'] = True
+            if self.A1.antpol.flag['P1'] or self.A2.antpol.flag['P2']:
+                flags['P12'] = True
+            if self.A1.antpol.flag['P2'] or self.A2.antpol.flag['P2']:
+                flags['P22'] = True
+                
+        self.crosspol.update_flags(flags=flags, verify=verify)
+
+        # Stack on to last value or update last value in stack
+        for pol in ['P11', 'P12', 'P21', 'P22']: 
+            if stack is True:
+                self.flag_stack[pol] = NP.append(self.flag_stack[pol], self.crosspol.flag[pol])
+            else:
+                if self.flag_stack[pol].size > 0:
+                    self.flag_stack[pol][-1] = self.crosspol.flag[pol]
+                # else:
+                #     self.flag_stack[pol] = NP.asarray(self.crosspol.flag[pol]).reshape(-1)
+            self.flag_stack[pol] = self.flag_stack[pol].astype(NP.bool)
 
     ############################################################################
 
-    def update(self, label=None, Vt=None, t=None, timestamp=None,
-               location=None, wtsinfo=None, flags=None, gridfunc_freq=None,
-               ref_freq=None, do_correlate=None, verbose=False):
+    def update_old(self, label=None, Vt=None, t=None, timestamp=None,
+                   location=None, wtsinfo=None, flags=None, gridfunc_freq=None,
+                   ref_freq=None, do_correlate=None, stack=False,
+                   verify_flags=True, verbose=False):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Updates the interferometer instance with newer attribute values. Updates 
         the visibility spectrum and timeseries and applies FX or XF operation.
 
@@ -3306,8 +1157,8 @@ class Interferometer:
                    Default=None means no update to apply
 
         flags      [dictionary] holds boolean flags for each of the 4 cross-
-                   polarizations which are stored under keys 'P11', 'P12', 'P21', 
-                   and 'P22'. Default=None means no updates for flags.
+                   polarizations which are stored under keys 'P11', 'P12', 
+                   'P21', and 'P22'. Default=None means no updates for flags.
 
         Vt         [dictionary] holds cross-correlation time series under 4 
                    cross-polarizations which are stored under keys 'P11', 'P12', 
@@ -3332,8 +1183,8 @@ class Interferometer:
                                coordinate system relative to the local ENU 
                                coordinate system. It is measured North of East. 
                    lookup      [string] If set, refers to a file location
-                               containing the wtspos and wts information above as
-                               columns (x-loc [float], y-loc [float], wts
+                               containing the wtspos and wts information above 
+                               as columns (x-loc [float], y-loc [float], wts
                                [real], wts[imag if any]). If set, wtspos and wts 
                                information are obtained from this lookup table 
                                and the wtspos and wts keywords in the dictionary
@@ -3346,8 +1197,8 @@ class Interferometer:
                    assumes that wtspos in wtsinfo are given for a
                    reference frequency which need to be scaled for the frequency
                    channels. Will be ignored if the list of dictionaries under 
-                   the cross-polarization keys in wtsinfo have number of elements 
-                   equal to the number of frequency channels.
+                   the cross-polarization keys in wtsinfo have number of 
+                   elements equal to the number of frequency channels.
 
         ref_freq   [Scalar] Positive value (in Hz) of reference frequency (used
                    if gridfunc_freq is set to None or 'scale') at which
@@ -3361,9 +1212,21 @@ class Interferometer:
                    operation) and 'XF' (for XF operation). Default=None means
                    no correlating operation is to be performed after updates.
 
+        stack      [boolean] If True (default), appends the updated flag 
+                   and data to the end of the stack as a function of 
+                   timestamp. If False, updates the last flag and data in 
+                   the stack and does not append
+
+        verify_flags     
+                   [boolean] If True, verify and update the flags, if necessary.
+                   Visibilities are checked for NaN values and if found, the
+                   flag in the corresponding polarization is set to True. Flags 
+                   of individual antennas forming a pair are checked and 
+                   transferred to the visibility flags. Default=True 
+
         verbose    [boolean] If True, prints diagnostic and progress messages. 
                    If False (default), suppress printing such messages.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         if label is not None: self.label = label
@@ -3371,177 +1234,465 @@ class Interferometer:
         if timestamp is not None: self.timestamp = timestamp
         # if latitude is not None: self.latitude = latitude
 
-        if t is not None:
-            self.t = t
-            self.f = self.f0 + self.channels()     
-
-        if flags is not None:        # Flags determined from interferometer level
-            self.update_flags(flags) 
-
-        if Vt is not None:
-            self.crosspol.update(Vt=Vt)
-        
-        if do_correlate is not None:
-            if do_correlate == 'FX':
-                self.FX()
-            elif do_correlate == 'XF':
-                self.XF()
-            else:
-                raise ValueError('Invalid specification for input parameter do_correlate.')
-
-        blc_orig = NP.copy(self.blc)
-        trc_orig = NP.copy(self.trc)
-        eps = 1e-6
-
-        if wtsinfo is not None:
-            if not isinstance(wtsinfo, dict):
-                raise TypeError('Input parameter wtsinfo must be a dictionary.')
-
-            self.wtspos = {}
-            self.wts = {}
-            self.wtspos_scale = {}
-            angles = []
-            
-            max_wtspos = []
-            for pol in ['P11', 'P12', 'P21', 'P22']:
-                self.wts[pol] = []
-                self.wtspos[pol] = []
-                self.wtspos_scale[pol] = None
-                if pol in wtsinfo:
-                    if len(wtsinfo[pol]) == len(self.f):
-                        angles += [elem['orientation'] for elem in wtsinfo[pol]]
-                        for i in xrange(len(self.f)):
-                            rotation_matrix = NP.asarray([[NP.cos(-angles[i]),  NP.sin(-angles[i])],
-                                                          [-NP.sin(-angles[i]), NP.cos(-angles[i])]])
-                            if ('lookup' not in wtsinfo[pol][i]) or (wtsinfo[pol][i]['lookup'] is None):
-                                self.wts[pol] += [wtsinfo[pol][i]['wts']]
-                                wtspos = wtsinfo[pol][i]['wtspos']
-                            else:
-                                lookupdata = LKP.read_lookup(wtsinfo[pol][i]['lookup'])
-                                wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (self.f[i]/FCNST.c)
-                                self.wts[pol] += [lookupdata[2]]
-                            self.wtspos[pol] += [ NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]
-                            max_wtspos += [NP.amax(NP.abs(self.wtspos[pol][-1]), axis=0)]
-                    elif len(wtsinfo[pol]) == 1:
-                        if (gridfunc_freq is None) or (gridfunc_freq == 'scale'):
-                            self.wtspos_scale[pol] = 'scale'
-                            if ref_freq is None:
-                                ref_freq = self.f0
-                            angles = wtsinfo[pol][0]['orientation']
-                            rotation_matrix = NP.asarray([[NP.cos(-angles),  NP.sin(-angles)],
-                                                          [-NP.sin(-angles), NP.cos(-angles)]])
-                            if ('lookup' not in wtsinfo[pol][0]) or (wtsinfo[pol][0]['lookup'] is None):
-                                self.wts[pol] += [ wtsinfo[pol][0]['wts'] ]
-                                wtspos = wtsinfo[pol][0]['wtspos']
-                            else:
-                                lookupdata = LKP.read_lookup(wtsinfo[pol][0]['lookup'])
-                                wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (ref_freq/FCNST.c)
-                                self.wts[pol] += [lookupdata[2]]
-                            self.wtspos[pol] += [ (self.f[0]/ref_freq) * NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]     
-                            max_wtspos += [NP.amax(NP.abs(self.wtspos[pol][-1]), axis=0)]
-                        else:
-                            raise ValueError('gridfunc_freq must be set to None, "scale" or "noscale".')
-    
-                        self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - FCNST.c/self.f.min() * NP.amin(NP.abs(self.wtspos[pol][0]), 0)
-                        self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + FCNST.c/self.f.min() * NP.amax(NP.abs(self.wtspos[pol][0]), 0)
-    
-                    else:
-                        raise ValueError('Number of elements in wtsinfo for {0} is incompatible with the number of channels.'.format(pol))
-               
-            max_wtspos = NP.amax(NP.asarray(max_wtspos).reshape(-1,blc_orig.size), axis=0)
-            self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - FCNST.c/self.f.min() * max_wtspos
-            self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + FCNST.c/self.f.min() * max_wtspos
-
-        if (NP.abs(NP.linalg.norm(blc_orig)-NP.linalg.norm(self.blc)) > eps) or (NP.abs(NP.linalg.norm(trc_orig)-NP.linalg.norm(self.trc)) > eps):
+        # Proceed with interferometer updates only if timestamps align
+        if (self.timestamp != self.A1.timestamp) or (self.timestamp != self.A2.timestamp):
             if verbose:
-                print 'Grid corner(s) of interferometer {0} have changed. Should re-grid the interferometer array.'.format(self.label)
+                print 'Interferometer timestamp does not match with the component antenna timestamp(s). Update for interferometer {0} will be skipped.'.format(self.label)
+        else:
+            self.timestamps += [copy.deepcopy(self.timestamp)]
+            if t is not None:
+                self.t = t
+                self.f = self.f0 + self.channels()     
+    
+            if (Vt is not None) or (flags is not None):
+                self.crosspol.update(Vt=Vt, flags=flags, verify=verify_flags)
+    
+            if do_correlate is not None:
+                if do_correlate == 'FX':
+                    self.FX()
+                elif do_correlate == 'XF':
+                    self.XF()
+                else:
+                    raise ValueError('Invalid specification for input parameter do_correlate.')
+    
+            self.update_flags(flags=None, stack=stack, verify=True)  # Re-check flags and stack
+            for pol in ['P11', 'P12', 'P21', 'P22']:
+                if self.Vt_stack[pol] is None:
+                    self.Vt_stack[pol] = copy.deepcopy(self.crosspol.Vt[pol].reshape(1,-1))
+                    self.Vf_stack[pol] = copy.deepcopy(self.crosspol.Vf[pol].reshape(1,-1))
+                else:
+                    if stack:
+                        self.Vt_stack[pol] = NP.vstack((self.Vt_stack[pol], self.crosspol.Vt[pol].reshape(1,-1)))
+                        self.Vf_stack[pol] = NP.vstack((self.Vf_stack[pol], self.crosspol.Vf[pol].reshape(1,-1)))
+                    else:
+                        self.Vt_stack[pol][-1,:] = copy.deepcopy(self.crosspol.Vt[pol].reshape(1,-1))
+                        self.Vf_stack[pol][-1,:] = copy.deepcopy(self.crosspol.Vf[pol].reshape(1,-1))
 
-    #############################################################################
+            blc_orig = NP.copy(self.blc)
+            trc_orig = NP.copy(self.trc)
+            eps = 1e-6
+    
+            if wtsinfo is not None:
+                if not isinstance(wtsinfo, dict):
+                    raise TypeError('Input parameter wtsinfo must be a dictionary.')
+    
+                self.wtspos = {}
+                self.wts = {}
+                self.wtspos_scale = {}
+                angles = []
+                
+                max_wtspos = []
+                for pol in ['P11', 'P12', 'P21', 'P22']:
+                    self.wts[pol] = []
+                    self.wtspos[pol] = []
+                    self.wtspos_scale[pol] = None
+                    if pol in wtsinfo:
+                        if len(wtsinfo[pol]) == len(self.f):
+                            angles += [elem['orientation'] for elem in wtsinfo[pol]]
+                            for i in xrange(len(self.f)):
+                                rotation_matrix = NP.asarray([[NP.cos(-angles[i]),  NP.sin(-angles[i])],
+                                                              [-NP.sin(-angles[i]), NP.cos(-angles[i])]])
+                                if ('lookup' not in wtsinfo[pol][i]) or (wtsinfo[pol][i]['lookup'] is None):
+                                    self.wts[pol] += [wtsinfo[pol][i]['wts']]
+                                    wtspos = wtsinfo[pol][i]['wtspos']
+                                else:
+                                    lookupdata = LKP.read_lookup(wtsinfo[pol][i]['lookup'])
+                                    wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (self.f[i]/FCNST.c)
+                                    self.wts[pol] += [lookupdata[2]]
+                                self.wtspos[pol] += [ NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]
+                                max_wtspos += [NP.amax(NP.abs(self.wtspos[pol][-1]), axis=0)]
+                        elif len(wtsinfo[pol]) == 1:
+                            if (gridfunc_freq is None) or (gridfunc_freq == 'scale'):
+                                self.wtspos_scale[pol] = 'scale'
+                                if ref_freq is None:
+                                    ref_freq = self.f0
+                                angles = wtsinfo[pol][0]['orientation']
+                                rotation_matrix = NP.asarray([[NP.cos(-angles),  NP.sin(-angles)],
+                                                              [-NP.sin(-angles), NP.cos(-angles)]])
+                                if ('lookup' not in wtsinfo[pol][0]) or (wtsinfo[pol][0]['lookup'] is None):
+                                    self.wts[pol] += [ wtsinfo[pol][0]['wts'] ]
+                                    wtspos = wtsinfo[pol][0]['wtspos']
+                                else:
+                                    lookupdata = LKP.read_lookup(wtsinfo[pol][0]['lookup'])
+                                    wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (ref_freq/FCNST.c)
+                                    self.wts[pol] += [lookupdata[2]]
+                                self.wtspos[pol] += [ (self.f[0]/ref_freq) * NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]     
+                                max_wtspos += [NP.amax(NP.abs(self.wtspos[pol][-1]), axis=0)]
+                            else:
+                                raise ValueError('gridfunc_freq must be set to None, "scale" or "noscale".')
+        
+                            self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - FCNST.c/self.f.min() * NP.amin(NP.abs(self.wtspos[pol][0]), 0)
+                            self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + FCNST.c/self.f.min() * NP.amax(NP.abs(self.wtspos[pol][0]), 0)
+        
+                        else:
+                            raise ValueError('Number of elements in wtsinfo for {0} is incompatible with the number of channels.'.format(pol))
+                   
+                max_wtspos = NP.amax(NP.asarray(max_wtspos).reshape(-1,blc_orig.size), axis=0)
+                self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - FCNST.c/self.f.min() * max_wtspos
+                self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + FCNST.c/self.f.min() * max_wtspos
+    
+            if (NP.abs(NP.linalg.norm(blc_orig)-NP.linalg.norm(self.blc)) > eps) or (NP.abs(NP.linalg.norm(trc_orig)-NP.linalg.norm(self.trc)) > eps):
+                if verbose:
+                    print 'Grid corner(s) of interferometer {0} have changed. Should re-grid the interferometer array.'.format(self.label)
 
-    def update_new(self, update_dict=None, verbose=True):
+    ############################################################################
+
+    def update(self, update_dict=None, verbose=False):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Updates the interferometer instance with newer attribute values. Updates 
         the visibility spectrum and timeseries and applies FX or XF operation.
 
         Inputs:
 
-        label      [Scalar] A unique identifier (preferably a string) for the 
-                   interferometer. Default=None means no update to apply
+        update_dict [dictionary] contains the following keys and values:
 
-        latitude   [Scalar] Latitude of the interferometer's location. 
-                   Default=None means no update to apply
+            label      [Scalar] A unique identifier (preferably a string) for 
+                       the antenna. Default=None means no update to apply
+    
+            latitude   [Scalar] Latitude of the antenna's location. Default=None 
+                       means no update to apply
+    
+            location   [Instance of GEOM.Point class] The location of the 
+                       antenna in local East, North, Up (ENU) coordinate system. 
+                       Default=None means no update to apply
+    
+            timestamp  [Scalar] String or float representing the timestamp for 
+                       the current attributes. Default=None means no update to 
+                       apply
+    
+            t          [vector] The time axis for the visibility time series. 
+                       Default=None means no update to apply
+    
+            flags      [dictionary] holds boolean flags for each of the 4 
+                       cross-polarizations which are stored under keys 'P11', 
+                       'P12', 'P21', and 'P22'. Default=None means no updates 
+                       for flags.
+    
+            Vt         [dictionary] holds cross-correlation time series under 4 
+                       cross-polarizations which are stored under keys 'P11', 
+                       'P12', 'P21', and 'P22'. Default=None implies no updates 
+                       for Vt.
+    
+            wtsinfo    [dictionary] consists of weights information for each of 
+                       the four cross-polarizations under keys 'P11', 'P12', 
+                       'P21', and 'P22'. Each of the values under the keys is a 
+                       list of dictionaries. Length of list is equal to the 
+                       number of frequency channels or one (equivalent to 
+                       setting wtspos_scale to 'scale'.). The list is indexed by 
+                       the frequency channel number. Each element in the list
+                       consists of a dictionary corresponding to that frequency
+                       channel. Each dictionary consists of these items with the
+                       following keys:
+                       wtspos      [2-column Numpy array, optional] u- and v- 
+                                   positions for the gridding weights. Units
+                                   are in number of wavelengths.
+                       wts         [Numpy array] Complex gridding weights. Size 
+                                   is equal to the number of rows in wtspos 
+                                   above
+                       orientation [scalar] Orientation (in radians) of the 
+                                   wtspos coordinate system relative to the 
+                                   local ENU coordinate system. It is measured 
+                                   North of East. 
+                       lookup      [string] If set, refers to a file location
+                                   containing the wtspos and wts information 
+                                   above as columns (x-loc [float], y-loc 
+                                   [float], wts[real], wts[imag if any]). If 
+                                   set, wtspos and wts information are obtained 
+                                   from this lookup table and the wtspos and wts 
+                                   keywords in the dictionary are ignored. Note 
+                                   that wtspos values are obtained after 
+                                   dividing x- and y-loc lookup values by the
+                                   wavelength
+    
+            gridfunc_freq
+                       [String scalar] If set to None (not provided) or to 
+                       'scale' assumes that wtspos in wtsinfo are given for a
+                       reference frequency which need to be scaled for the 
+                       frequency channels. Will be ignored if the list of 
+                       dictionaries under the cross-polarization keys in 
+                       wtsinfo have number of elements equal to the number of 
+                       frequency channels.
+    
+            ref_freq   [Scalar] Positive value (in Hz) of reference frequency 
+                       (used if gridfunc_freq is set to None or 'scale') at 
+                       which wtspos is provided. If set to None, ref_freq is 
+                       assumed to be equal to the center frequency in the class 
+                       Interferometer's attribute. 
+    
+            do_correlate
+                       [string] Indicates whether correlation operation is to be
+                       performed after updates. Accepted values are 'FX' (for FX
+                       operation) and 'XF' (for XF operation). Default=None 
+                       means no correlating operation is to be performed after 
+                       updates.
+    
+            stack      [boolean] If True (default), appends the updated flag 
+                       and data to the end of the stack as a function of 
+                       timestamp. If False, updates the last flag and data in 
+                       the stack and does not append
 
-        location   [Instance of GEOM.Point class] The location of the 
-                   interferometer in local East, North, Up (ENU) coordinate 
-                   system. Default=None means no update to apply
-
-        timestamp  [Scalar] String or float representing the timestamp for the 
-                   current attributes. Default=None means no update to apply
-
-        t          [vector] The time axis for the visibility time series. 
-                   Default=None means no update to apply
-
-        flags      [dictionary] holds boolean flags for each of the 4 cross-
-                   polarizations which are stored under keys 'P11', 'P12', 'P21', 
-                   and 'P22'. Default=None means no updates for flags.
-
-        Vt         [dictionary] holds cross-correlation time series under 4 
-                   cross-polarizations which are stored under keys 'P11', 'P12', 
-                   'P21', and 'P22'. Default=None implies no updates for Vt.
-
-        wtsinfo    [dictionary] consists of weights information for each of the
-                   four cross-polarizations under keys 'P11', 'P12', 'P21', and 
-                   'P22'. Each of the values under the keys is a list of 
-                   dictionaries. Length of list is equal to the number
-                   of frequency channels or one (equivalent to setting
-                   wtspos_scale to 'scale'.). The list is indexed by 
-                   the frequency channel number. Each element in the list
-                   consists of a dictionary corresponding to that frequency
-                   channel. Each dictionary consists of these items with the
-                   following keys:
-                   wtspos      [2-column Numpy array, optional] u- and v- 
-                               positions for the gridding weights. Units
-                               are in number of wavelengths.
-                   wts         [Numpy array] Complex gridding weights. Size is
-                               equal to the number of rows in wtspos above
-                   orientation [scalar] Orientation (in radians) of the wtspos 
-                               coordinate system relative to the local ENU 
-                               coordinate system. It is measured North of East. 
-                   lookup      [string] If set, refers to a file location
-                               containing the wtspos and wts information above as
-                               columns (x-loc [float], y-loc [float], wts
-                               [real], wts[imag if any]). If set, wtspos and wts 
-                               information are obtained from this lookup table 
-                               and the wtspos and wts keywords in the dictionary
-                               are ignored. Note that wtspos values are obtained
-                               after dividing x- and y-loc lookup values by the
-                               wavelength
-
-        gridfunc_freq
-                   [String scalar] If set to None (not provided) or to 'scale'
-                   assumes that wtspos in wtsinfo are given for a
-                   reference frequency which need to be scaled for the frequency
-                   channels. Will be ignored if the list of dictionaries under 
-                   the cross-polarization keys in wtsinfo have number of elements 
-                   equal to the number of frequency channels.
-
-        ref_freq   [Scalar] Positive value (in Hz) of reference frequency (used
-                   if gridfunc_freq is set to None or 'scale') at which
-                   wtspos is provided. If set to None, ref_freq is assumed to be 
-                   equal to the center frequency in the class Interferometer's 
-                   attribute. 
-
-        do_correlate
-                   [string] Indicates whether correlation operation is to be
-                   performed after updates. Accepted values are 'FX' (for FX
-                   operation) and 'XF' (for XF operation). Default=None means
-                   no correlating operation is to be performed after updates.
+            verify_flags     
+                       [boolean] If True, verify and update the flags, if 
+                       necessary. Visibilities are checked for NaN values and if 
+                       found, the flag in the corresponding polarization is set 
+                       to True. Flags of individual antennas forming a pair are 
+                       checked and transferred to the visibility flags. 
+                       Default=True 
 
         verbose    [boolean] If True, prints diagnostic and progress messages. 
                    If False (default), suppress printing such messages.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
+        """
+
+        label = None
+        location = None
+        timestamp = None
+        t = None
+        flags = None
+        stack = False
+        verify_flags = True
+        Vt = None
+        do_correlate = None
+        wtsinfo = None
+        gridfunc_freq = None
+        ref_freq = None
+
+        if update_dict is not None:
+            if not isinstance(update_dict, dict):
+                raise TypeError('Input parameter containing updates must be a dictionary')
+
+            if 'label' in update_dict: label = update_dict['label']
+            if 'location' in update_dict: location = update_dict['location']
+            if 'timestamp' in update_dict: timestamp = update_dict['timestamp']
+            if 't' in update_dict: t = update_dict['t']
+            if 'Vt' in update_dict: Vt = update_dict['Vt']
+            if 'flags' in update_dict: flags = update_dict['flags']
+            if 'stack' in update_dict: stack = update_dict['stack']
+            if 'verify_flags' in update_dict: verify_flags = update_dict['verify_flags']            
+            if 'do_correlate' in update_dict: do_correlate = update_dict['do_correlate']
+            if 'wtsinfo' in update_dict: wtsinfo = update_dict['wtsinfo']
+            if 'gridfunc_freq' in update_dict: gridfunc_freq = update_dict['gridfunc_freq']
+            if 'ref_freq' in update_dict: ref_freq = update_dict['ref_freq']
+
+        if label is not None: self.label = label
+        if location is not None: self.location = location
+        if timestamp is not None: self.timestamp = timestamp
+        # if latitude is not None: self.latitude = latitude
+
+        # Proceed with interferometer updates only if timestamps align
+        if (self.timestamp != self.A1.timestamp) or (self.timestamp != self.A2.timestamp):
+            if verbose:
+                print 'Interferometer timestamp does not match with the component antenna timestamp(s). Update for interferometer {0} will be skipped.'.format(self.label)
+        else:
+            self.timestamps += [copy.deepcopy(self.timestamp)]
+            if t is not None:
+                self.t = t
+                self.f = self.f0 + self.channels()     
+    
+            self.crosspol.update(Vt=Vt, flags=flags, verify=verify_flags)
+    
+            if do_correlate is not None:
+                if do_correlate == 'FX':
+                    self.FX()
+                elif do_correlate == 'XF':
+                    self.XF()
+                else:
+                    raise ValueError('Invalid specification for input parameter do_correlate.')
+                self.update_flags(flags=None, stack=stack, verify=False)  # Stack flags. Flag verification has already been performed inside FX() or XF()
+
+            for pol in ['P11', 'P12', 'P21', 'P22']:
+                if not self.crosspol._init_data_on:
+                    if self.Vt_stack[pol] is None:
+                        if stack:
+                            self.Vt_stack[pol] = copy.deepcopy(self.crosspol.Vt[pol].reshape(1,-1))
+                            self.Vf_stack[pol] = copy.deepcopy(self.crosspol.Vf[pol].reshape(1,-1))
+                    else:
+                        if stack:
+                            self.Vt_stack[pol] = NP.vstack((self.Vt_stack[pol], self.crosspol.Vt[pol].reshape(1,-1)))
+                            self.Vf_stack[pol] = NP.vstack((self.Vf_stack[pol], self.crosspol.Vf[pol].reshape(1,-1)))
+                        else:
+                            self.Vt_stack[pol][-1,:] = copy.deepcopy(self.crosspol.Vt[pol].reshape(1,-1))
+                            self.Vf_stack[pol][-1,:] = copy.deepcopy(self.crosspol.Vf[pol].reshape(1,-1))
+
+            blc_orig = NP.copy(self.blc)
+            trc_orig = NP.copy(self.trc)
+            eps = 1e-6
+    
+            if wtsinfo is not None:
+                if not isinstance(wtsinfo, dict):
+                    raise TypeError('Input parameter wtsinfo must be a dictionary.')
+    
+                self.wtspos = {}
+                self.wts = {}
+                self.wtspos_scale = {}
+                angles = []
+                
+                max_wtspos = []
+                for pol in ['P11', 'P12', 'P21', 'P22']:
+                    self.wts[pol] = []
+                    self.wtspos[pol] = []
+                    self.wtspos_scale[pol] = None
+                    if pol in wtsinfo:
+                        if len(wtsinfo[pol]) == len(self.f):
+                            angles += [elem['orientation'] for elem in wtsinfo[pol]]
+                            for i in xrange(len(self.f)):
+                                rotation_matrix = NP.asarray([[NP.cos(-angles[i]),  NP.sin(-angles[i])],
+                                                              [-NP.sin(-angles[i]), NP.cos(-angles[i])]])
+                                if ('lookup' not in wtsinfo[pol][i]) or (wtsinfo[pol][i]['lookup'] is None):
+                                    self.wts[pol] += [wtsinfo[pol][i]['wts']]
+                                    wtspos = wtsinfo[pol][i]['wtspos']
+                                else:
+                                    lookupdata = LKP.read_lookup(wtsinfo[pol][i]['lookup'])
+                                    wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (self.f[i]/FCNST.c)
+                                    self.wts[pol] += [lookupdata[2]]
+                                self.wtspos[pol] += [ NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]
+                                max_wtspos += [NP.amax(NP.abs(self.wtspos[pol][-1]), axis=0)]
+                        elif len(wtsinfo[pol]) == 1:
+                            if (gridfunc_freq is None) or (gridfunc_freq == 'scale'):
+                                self.wtspos_scale[pol] = 'scale'
+                                if ref_freq is None:
+                                    ref_freq = self.f0
+                                angles = wtsinfo[pol][0]['orientation']
+                                rotation_matrix = NP.asarray([[NP.cos(-angles),  NP.sin(-angles)],
+                                                              [-NP.sin(-angles), NP.cos(-angles)]])
+                                if ('lookup' not in wtsinfo[pol][0]) or (wtsinfo[pol][0]['lookup'] is None):
+                                    self.wts[pol] += [ wtsinfo[pol][0]['wts'] ]
+                                    wtspos = wtsinfo[pol][0]['wtspos']
+                                else:
+                                    lookupdata = LKP.read_lookup(wtsinfo[pol][0]['lookup'])
+                                    wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (ref_freq/FCNST.c)
+                                    self.wts[pol] += [lookupdata[2]]
+                                self.wtspos[pol] += [ (self.f[0]/ref_freq) * NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]     
+                                max_wtspos += [NP.amax(NP.abs(self.wtspos[pol][-1]), axis=0)]
+                            else:
+                                raise ValueError('gridfunc_freq must be set to None, "scale" or "noscale".')
+        
+                            self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - FCNST.c/self.f.min() * NP.amin(NP.abs(self.wtspos[pol][0]), 0)
+                            self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + FCNST.c/self.f.min() * NP.amax(NP.abs(self.wtspos[pol][0]), 0)
+        
+                        else:
+                            raise ValueError('Number of elements in wtsinfo for {0} is incompatible with the number of channels.'.format(pol))
+                   
+                max_wtspos = NP.amax(NP.asarray(max_wtspos).reshape(-1,blc_orig.size), axis=0)
+                self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - FCNST.c/self.f.min() * max_wtspos
+                self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + FCNST.c/self.f.min() * max_wtspos
+    
+            if (NP.abs(NP.linalg.norm(blc_orig)-NP.linalg.norm(self.blc)) > eps) or (NP.abs(NP.linalg.norm(trc_orig)-NP.linalg.norm(self.trc)) > eps):
+                if verbose:
+                    print 'Grid corner(s) of interferometer {0} have changed. Should re-grid the interferometer array.'.format(self.label)
+
+    ############################################################################
+    
+    def update_pp_old(self, update_dict=None, verbose=True):
+
+        """
+        ------------------------------------------------------------------------
+        Updates the interferometer instance with newer attribute values. Updates 
+        the visibility spectrum and timeseries and applies FX or XF operation.
+        Used internally when parallel processing is used. Not to be used by the
+        user directly.
+
+        Inputs:
+
+        update_dict [dictionary] contains the following keys and values:
+
+            label      [Scalar] A unique identifier (preferably a string) for 
+                       the interferometer. Default=None means no update to apply
+            
+            latitude   [Scalar] Latitude of the interferometer's location. 
+                       Default=None means no update to apply
+            
+            location   [Instance of GEOM.Point class] The location of the 
+                       interferometer in local East, North, Up (ENU) coordinate 
+                       system. Default=None means no update to apply
+            
+            timestamp  [Scalar] String or float representing the timestamp for 
+                       the current attributes. Default=None means no update to 
+                       apply
+            
+            t          [vector] The time axis for the visibility time series. 
+                       Default=None means no update to apply
+            
+            flags      [dictionary] holds boolean flags for each of the 4 cross-
+                       polarizations which are stored under keys 'P11', 'P12', 
+                       'P21', and 'P22'. Default=None means no updates for 
+                       flags.
+            
+            Vt         [dictionary] holds cross-correlation time series under 4 
+                       cross-polarizations which are stored under keys 'P11', 
+                       'P12', 'P21', and 'P22'. Default=None implies no updates 
+                       for Vt.
+            
+            wtsinfo    [dictionary] consists of weights information for each of 
+                       the four cross-polarizations under keys 'P11', 'P12', 
+                       'P21', and 'P22'. Each of the values under the keys is a 
+                       list of dictionaries. Length of list is equal to the 
+                       number of frequency channels or one (equivalent to 
+                       setting wtspos_scale to 'scale'.). The list is indexed by 
+                       the frequency channel number. Each element in the list
+                       consists of a dictionary corresponding to that frequency
+                       channel. Each dictionary consists of these items with the
+                       following keys:
+                       wtspos      [2-column Numpy array, optional] u- and v- 
+                                   positions for the gridding weights. Units
+                                   are in number of wavelengths.
+                       wts         [Numpy array] Complex gridding weights. Size 
+                                   is equal to the number of rows in wtspos 
+                                   above
+                       orientation [scalar] Orientation (in radians) of the 
+                                   wtspos coordinate system relative to the 
+                                   local ENU coordinate system. It is measured 
+                                   North of East. 
+                       lookup      [string] If set, refers to a file location
+                                   containing the wtspos and wts information 
+                                   above as columns (x-loc [float], y-loc 
+                                   [float], wts[real], wts[imag if any]). If 
+                                   set, wtspos and wts information are obtained 
+                                   from this lookup table and the wtspos and wts 
+                                   keywords in the dictionary are ignored. Note 
+                                   that wtspos values are obtained after 
+                                   dividing x- and y-loc lookup values by the 
+                                   wavelength
+            
+            gridfunc_freq
+                       [String scalar] If set to None (not provided) or to 
+                       'scale' assumes that wtspos in wtsinfo are given for a
+                       reference frequency which need to be scaled for the 
+                       frequency channels. Will be ignored if the list of 
+                       dictionaries under the cross-polarization keys in wtsinfo 
+                       have number of elements equal to the number of frequency 
+                       channels.
+            
+            ref_freq   [Scalar] Positive value (in Hz) of reference frequency 
+                       (used if gridfunc_freq is set to None or 'scale') at 
+                       which wtspos is provided. If set to None, ref_freq is 
+                       assumed to be equal to the center frequency in the class 
+                       Interferometer's attribute. 
+            
+            do_correlate
+                       [string] Indicates whether correlation operation is to be
+                       performed after updates. Accepted values are 'FX' (for FX
+                       operation) and 'XF' (for XF operation). Default=None 
+                       means no correlating operation is to be performed after 
+                       updates.
+            
+           stack       [boolean] If True (default), appends the updated flag 
+                       and data to the end of the stack as a function of 
+                       timestamp. If False, updates the last flag and data in 
+                       the stack and does not append
+
+            verify_flags     
+                   [boolean] If True, verify and update the flags, if necessary.
+                   Visibilities are checked for NaN values and if found, the
+                   flag in the corresponding polarization is set to True. Flags 
+                   of individual antennas forming a pair are checked and 
+                   transferred to the visibility flags. Default=True 
+
+        verbose    [boolean] If True, prints diagnostic and progress messages. 
+                   If False (default), suppress printing such messages.
+        ------------------------------------------------------------------------
         """
 
         label = None
@@ -3554,6 +1705,8 @@ class Interferometer:
         wtsinfo = None
         gridfunc_freq = None
         ref_freq = None
+        stack = False
+        verify_flags = True
             
         if update_dict is not None:
             if not isinstance(update_dict, dict):
@@ -3565,6 +1718,8 @@ class Interferometer:
             if 't' in update_dict: t = update_dict['t']
             if 'Vt' in update_dict: Vt = update_dict['Vt']
             if 'flags' in update_dict: flags = update_dict['flags']
+            if 'stack' in update_dict: stack = update_dict['stack']
+            if 'verify_flags' in update_dict: verify_flags = update_dict['verify_flags']            
             if 'do_correlate' in update_dict: do_correlate = update_dict['do_correlate']
             if 'wtsinfo' in update_dict: wtsinfo = update_dict['wtsinfo']
             if 'gridfunc_freq' in update_dict: gridfunc_freq = update_dict['gridfunc_freq']
@@ -3574,94 +1729,284 @@ class Interferometer:
         if location is not None: self.location = location
         if timestamp is not None: self.timestamp = timestamp
 
-        if t is not None:
-            self.t = t
-            self.f = self.f0 + self.channels()     
-
-        if flags is not None:        # Flags determined from interferometer level
-            self.update_flags(flags) 
-
-        if Vt is not None:
-            self.crosspol.update(Vt=Vt)
-        
-        if do_correlate is not None:
-            if do_correlate == 'FX':
-                self.FX()
-            elif do_correlate == 'XF':
-                self.XF()
-            else:
-                raise ValueError('Invalid specification for input parameter do_correlate.')
-
-        blc_orig = NP.copy(self.blc)
-        trc_orig = NP.copy(self.trc)
-        eps = 1e-6
-
-        if wtsinfo is not None:
-            if not isinstance(wtsinfo, dict):
-                raise TypeError('Input parameter wtsinfo must be a dictionary.')
-
-            self.wtspos = {}
-            self.wts = {}
-            self.wtspos_scale = {}
-            angles = []
-            
-            max_wtspos = []
-            for pol in ['P11', 'P12', 'P21', 'P22']:
-                self.wts[pol] = []
-                self.wtspos[pol] = []
-                self.wtspos_scale[pol] = None
-                if pol in wtsinfo:
-                    if len(wtsinfo[pol]) == len(self.f):
-                        angles += [elem['orientation'] for elem in wtsinfo[pol]]
-                        for i in xrange(len(self.f)):
-                            rotation_matrix = NP.asarray([[NP.cos(-angles[i]),  NP.sin(-angles[i])],
-                                                          [-NP.sin(-angles[i]), NP.cos(-angles[i])]])
-                            if ('lookup' not in wtsinfo[pol][i]) or (wtsinfo[pol][i]['lookup'] is None):
-                                self.wts[pol] += [wtsinfo[pol][i]['wts']]
-                                wtspos = wtsinfo[pol][i]['wtspos']
-                            else:
-                                lookupdata = LKP.read_lookup(wtsinfo[pol][i]['lookup'])
-                                wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (self.f[i]/FCNST.c)
-                                self.wts[pol] += [lookupdata[2]]
-                            self.wtspos[pol] += [ NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]
-                            max_wtspos += [NP.amax(NP.abs(self.wtspos[pol][-1]), axis=0)]
-                    elif len(wtsinfo[pol]) == 1:
-                        if (gridfunc_freq is None) or (gridfunc_freq == 'scale'):
-                            self.wtspos_scale[pol] = 'scale'
-                            if ref_freq is None:
-                                ref_freq = self.f0
-                            angles = wtsinfo[pol][0]['orientation']
-                            rotation_matrix = NP.asarray([[NP.cos(-angles),  NP.sin(-angles)],
-                                                          [-NP.sin(-angles), NP.cos(-angles)]])
-                            if ('lookup' not in wtsinfo[pol][0]) or (wtsinfo[pol][0]['lookup'] is None):
-                                self.wts[pol] += [ wtsinfo[pol][0]['wts'] ]
-                                wtspos = wtsinfo[pol][0]['wtspos']
-                            else:
-                                lookupdata = LKP.read_lookup(wtsinfo[pol][0]['lookup'])
-                                wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (ref_freq/FCNST.c)
-                                self.wts[pol] += [lookupdata[2]]
-                            self.wtspos[pol] += [ (self.f[0]/ref_freq) * NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]     
-                            max_wtspos += [NP.amax(NP.abs(self.wtspos[pol][-1]), axis=0)]
-                        else:
-                            raise ValueError('gridfunc_freq must be set to None, "scale" or "noscale".')
-    
-                        self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - FCNST.c/self.f.min() * NP.amin(NP.abs(self.wtspos[pol][0]), 0)
-                        self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + FCNST.c/self.f.min() * NP.amax(NP.abs(self.wtspos[pol][0]), 0)
-    
-                    else:
-                        raise ValueError('Number of elements in wtsinfo for {0} is incompatible with the number of channels.'.format(pol))
-               
-            max_wtspos = NP.amax(NP.asarray(max_wtspos).reshape(-1,blc_orig.size), axis=0)
-            self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - FCNST.c/self.f.min() * max_wtspos
-            self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + FCNST.c/self.f.min() * max_wtspos
-
-        if (NP.abs(NP.linalg.norm(blc_orig)-NP.linalg.norm(self.blc)) > eps) or (NP.abs(NP.linalg.norm(trc_orig)-NP.linalg.norm(self.trc)) > eps):
+        # Proceed with interferometer updates only if timestamps align
+        if (self.timestamp != self.A1.timestamp) or (self.timestamp != self.A2.timestamp):
             if verbose:
-                print 'Grid corner(s) of interferometer {0} have changed. Should re-grid the interferometer array.'.format(self.label)
+                print 'Interferometer timestamp does not match with the component antenna timestamp(s). Update for interferometer {0} will be skipped.'.format(self.label)
+        else:
+            self.timestamps += [copy.deepcopy(self.timestamp)]
+            if t is not None:
+                self.t = t
+                self.f = self.f0 + self.channels()     
+    
+            if (Vt is not None) or (flags is not None):
+                self.crosspol.update(Vt=Vt, flags=flags, verify=verify_flags)
+    
+            if do_correlate is not None:
+                if do_correlate == 'FX':
+                    self.FX()
+                elif do_correlate == 'XF':
+                    self.XF()
+                else:
+                    raise ValueError('Invalid specification for input parameter do_correlate.')
+    
+            self.update_flags(flags=None, stack=stack, verify=True)  # Re-check flags and stack
+            for pol in ['P11', 'P12', 'P21', 'P22']:
+                if self.Vt_stack[pol] is None:
+                    self.Vt_stack[pol] = copy.deepcopy(self.crosspol.Vt[pol].reshape(1,-1))
+                    self.Vf_stack[pol] = copy.deepcopy(self.crosspol.Vf[pol].reshape(1,-1))
+                else:
+                    if stack:
+                        self.Vt_stack[pol] = NP.vstack((self.Vt_stack[pol], self.crosspol.Vt[pol].reshape(1,-1)))
+                        self.Vf_stack[pol] = NP.vstack((self.Vf_stack[pol], self.crosspol.Vf[pol].reshape(1,-1)))
+                    else:
+                        self.Vt_stack[pol][-1,:] = copy.deepcopy(self.crosspol.Vt[pol].reshape(1,-1))
+                        self.Vf_stack[pol][-1,:] = copy.deepcopy(self.crosspol.Vf[pol].reshape(1,-1))
+    
+            blc_orig = NP.copy(self.blc)
+            trc_orig = NP.copy(self.trc)
+            eps = 1e-6
+    
+            if wtsinfo is not None:
+                if not isinstance(wtsinfo, dict):
+                    raise TypeError('Input parameter wtsinfo must be a dictionary.')
+    
+                self.wtspos = {}
+                self.wts = {}
+                self.wtspos_scale = {}
+                angles = []
+                
+                max_wtspos = []
+                for pol in ['P11', 'P12', 'P21', 'P22']:
+                    self.wts[pol] = []
+                    self.wtspos[pol] = []
+                    self.wtspos_scale[pol] = None
+                    if pol in wtsinfo:
+                        if len(wtsinfo[pol]) == len(self.f):
+                            angles += [elem['orientation'] for elem in wtsinfo[pol]]
+                            for i in xrange(len(self.f)):
+                                rotation_matrix = NP.asarray([[NP.cos(-angles[i]),  NP.sin(-angles[i])],
+                                                              [-NP.sin(-angles[i]), NP.cos(-angles[i])]])
+                                if ('lookup' not in wtsinfo[pol][i]) or (wtsinfo[pol][i]['lookup'] is None):
+                                    self.wts[pol] += [wtsinfo[pol][i]['wts']]
+                                    wtspos = wtsinfo[pol][i]['wtspos']
+                                else:
+                                    lookupdata = LKP.read_lookup(wtsinfo[pol][i]['lookup'])
+                                    wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (self.f[i]/FCNST.c)
+                                    self.wts[pol] += [lookupdata[2]]
+                                self.wtspos[pol] += [ NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]
+                                max_wtspos += [NP.amax(NP.abs(self.wtspos[pol][-1]), axis=0)]
+                        elif len(wtsinfo[pol]) == 1:
+                            if (gridfunc_freq is None) or (gridfunc_freq == 'scale'):
+                                self.wtspos_scale[pol] = 'scale'
+                                if ref_freq is None:
+                                    ref_freq = self.f0
+                                angles = wtsinfo[pol][0]['orientation']
+                                rotation_matrix = NP.asarray([[NP.cos(-angles),  NP.sin(-angles)],
+                                                              [-NP.sin(-angles), NP.cos(-angles)]])
+                                if ('lookup' not in wtsinfo[pol][0]) or (wtsinfo[pol][0]['lookup'] is None):
+                                    self.wts[pol] += [ wtsinfo[pol][0]['wts'] ]
+                                    wtspos = wtsinfo[pol][0]['wtspos']
+                                else:
+                                    lookupdata = LKP.read_lookup(wtsinfo[pol][0]['lookup'])
+                                    wtspos = NP.hstack((lookupdata[0].reshape(-1,1),lookupdata[1].reshape(-1,1))) * (ref_freq/FCNST.c)
+                                    self.wts[pol] += [lookupdata[2]]
+                                self.wtspos[pol] += [ (self.f[0]/ref_freq) * NP.dot(NP.asarray(wtspos), rotation_matrix.T) ]     
+                                max_wtspos += [NP.amax(NP.abs(self.wtspos[pol][-1]), axis=0)]
+                            else:
+                                raise ValueError('gridfunc_freq must be set to None, "scale" or "noscale".')
+        
+                            self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - FCNST.c/self.f.min() * NP.amin(NP.abs(self.wtspos[pol][0]), 0)
+                            self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + FCNST.c/self.f.min() * NP.amax(NP.abs(self.wtspos[pol][0]), 0)
+        
+                        else:
+                            raise ValueError('Number of elements in wtsinfo for {0} is incompatible with the number of channels.'.format(pol))
+                   
+                max_wtspos = NP.amax(NP.asarray(max_wtspos).reshape(-1,blc_orig.size), axis=0)
+                self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) - FCNST.c/self.f.min() * max_wtspos
+                self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1) + FCNST.c/self.f.min() * max_wtspos
+    
+            if (NP.abs(NP.linalg.norm(blc_orig)-NP.linalg.norm(self.blc)) > eps) or (NP.abs(NP.linalg.norm(trc_orig)-NP.linalg.norm(self.trc)) > eps):
+                if verbose:
+                    print 'Grid corner(s) of interferometer {0} have changed. Should re-grid the interferometer array.'.format(self.label)
+    
+            return self
 
+    ############################################################################
+
+    def update_pp(self, update_dict=None, verbose=True):
+
+        """
+        ------------------------------------------------------------------------
+        Updates the interferometer instance with newer attribute values. Updates 
+        the visibility spectrum and timeseries and applies FX or XF operation.
+        Used internally when parallel processing is used. Not to be used by the
+        user directly.
+
+        See member function update() for details on inputs.
+        ------------------------------------------------------------------------
+        """
+
+        self.update(update_dict=update_dict, verbose=verbose)
         return self
 
-    #############################################################################
+    ############################################################################
+
+    def stack(self, on_flags=True, on_data=True):
+
+        """
+        ------------------------------------------------------------------------
+        Stacks and computes visibilities and flags from the individual antennas 
+        in the pair.
+
+        Inputs:
+
+        on_flags  [boolean] if set to True (default), combines the time-stacked
+                  electric field flags from individual antennas from the 
+                  common timestamps into time-stacked visibility flags
+
+        on_data   [boolean] if set to True (default), combines the time-stacked
+                  electric fields from individual antennas from the common
+                  timestamps into time-stacked visibilities
+        ------------------------------------------------------------------------
+        """
+
+        ts1 = NP.asarray(self.A1.timestamps)
+        ts2 = NP.asarray(self.A2.timestamps)
+        common_ts = NP.intersect1d(ts1, ts2, assume_unique=True)
+        ind1 = NP.in1d(ts1, common_ts, assume_unique=True)
+        ind2 = NP.in1d(ts2, common_ts, assume_unique=True)
+
+        self.timestamps = common_ts.tolist()
+
+        if on_data:
+            self.FX_on_stack()
+
+        if on_flags:
+            self.flags_on_stack()
+
+    ############################################################################
+
+    def stack_pp(self, on_flags=True, on_data=True):
+
+        """
+        ------------------------------------------------------------------------
+        Stacks and computes visibilities and flags from the individual antennas 
+        in the pair. To be used internally as a wrapper for stack() in case of
+        parallel processing. Not to be used directly by the user.
+
+        Inputs:
+
+        on_flags  [boolean] if set to True (default), combines the time-stacked
+                  electric field flags from individual antennas from the 
+                  common timestamps into time-stacked visibility flags
+
+        on_data   [boolean] if set to True (default), combines the time-stacked
+                  electric fields from individual antennas from the common
+                  timestamps into time-stacked visibilities
+        ------------------------------------------------------------------------
+        """
+
+        self.stack(on_flags=on_flags, on_data=on_data)
+        return self
+
+    ############################################################################
+
+    def accumulate(self, tbinsize=None):
+
+        """
+        ------------------------------------------------------------------------
+        Accumulate and average visibility spectra across timestamps under 
+        different polarizations depending on the time bin size for the 
+        corresponding polarization.
+
+        Inputs:
+
+        tbinsize [scalar or dictionary] Contains bin size of timestamps while
+                 stacking. Default = None means all visibility spectra over all
+                 timestamps are averaged. If scalar, the same (positive) value 
+                 applies to all polarizations. If dictionary, timestamp bin size
+                 (positive) is provided under each key 'P11', 'P12', 'P21', 
+                 'P22'. If any of the keys is missing the visibilities for that 
+                 polarization are averaged over all timestamps.
+        ------------------------------------------------------------------------
+        """
+
+        timestamps = NP.asarray(self.timestamps).astype(NP.float)
+        Vf_acc = {}
+        twts = {}
+        Vf_avg = {}
+        for pol in ['P11', 'P12', 'P21', 'P22']:
+            Vf_acc[pol] = None
+            Vf_avg[pol] = None
+            twts[pol] = []
+
+        if tbinsize is None:   # Average visibilities across all timestamps
+            for pol in ['P11', 'P12', 'P21', 'P22']:
+                unflagged_ind = NP.logical_not(self.flag_stack[pol])
+                Vf_acc[pol] = NP.nansum(self.Vf_stack[pol][unflagged_ind,:], axis=0, keepdims=True)
+                twts[pol] = NP.sum(unflagged_ind).astype(NP.float).reshape(-1,1)
+                # twts[pol] = NP.asarray(len(self.timestamps) - NP.sum(self.flag_stack[pol])).reshape(-1,1)
+            self.tbinsize = tbinsize
+        elif isinstance(tbinsize, (int, float)): # Apply same time bin size to all polarizations 
+            eps = 1e-10
+            tbins = NP.arange(timestamps.min(), timestamps.max(), tbinsize)
+            tbins = NP.append(tbins, timestamps.max()+eps)
+            for pol in ['P11', 'P12', 'P21', 'P22']:
+                counts, tbin_edges, tbinnum, ri = OPS.binned_statistic(timestamps, statistic='count', bins=tbins)
+                for binnum in range(counts.size):
+                    ind = ri[ri[binnum]:ri[binnum+1]]
+                    unflagged_ind = NP.logical_not(self.flag_stack[pol][ind])
+                    twts[pol] += [NP.sum(unflagged_ind)]
+                    # twts[pol] += [counts[binnum] - NP.sum(self.flag_stack[pol][ind])]
+                    if Vf_acc[pol] is None:
+                        Vf_acc[pol] = NP.nansum(self.Vf_stack[pol][ind[unflagged_ind],:], axis=0, keepdims=True)
+                    else:
+                        Vf_acc[pol] = NP.vstack((Vf_acc[pol], NP.nansum(self.Vf_stack[pol][ind[unflagged_ind],:], axis=0, keepdims=True)))
+                twts[pol] = NP.asarray(twts[pol]).astype(NP.float).reshape(-1,1)
+            self.tbinsize = tbinsize
+        elif isinstance(tbinsize, dict): # Apply different time binsizes to corresponding polarizations
+            tbsize = {}
+            for pol in ['P11', 'P12', 'P21', 'P22']:
+                if pol not in tbinsize:
+                    unflagged_ind = NP.logical_not(self.flag_stack[pol])
+                    Vf_acc[pol] = NP.nansum(self.Vf_stack[pol][unflagged_ind,:], axis=0, keepdims=True)
+                    twts[pol] = NP.sum(unflagged_ind).astype(NP.float).reshape(-1,1)
+                    # twts[pol] = NP.asarray(len(self.timestamps) - NP.sum(self.flag_stack[pol])).reshape(-1,1)
+                    tbsize[pol] = None
+                elif isinstance(tbinsize[pol], (int,float)):
+                    eps = 1e-10
+                    tbins = NP.arange(timestamps.min(), timestamps.max(), tbinsize[pol])
+                    tbins = NP.append(tbins, timestamps.max()+eps)
+                    
+                    counts, tbin_edges, tbinnum, ri = OPS.binned_statistic(timestamps, statistic='count', bins=tbins)
+                    for binnum in range(counts.size):
+                        ind = ri[ri[binnum]:ri[binnum+1]]
+                        unflagged_ind = NP.logical_not(self.flag_stack[pol][ind])
+                        twts[pol] += [NP.sum(unflagged_ind)]
+                        # twts[pol] += [counts[binnum] - NP.sum(self.flag_stack[pol][ind])]
+                        if Vf_acc[pol] is None:
+                            Vf_acc[pol] = NP.nansum(self.Vf_stack[pol][ind[unflagged_ind],:], axis=0, keepdims=True)
+                        else:
+                            Vf_acc[pol] = NP.vstack((Vf_acc[pol], NP.nansum(self.Vf_stack[pol][ind[unflagged_ind],:], axis=0, keepdims=True)))
+                    twts[pol] = NP.asarray(twts[pol]).astype(NP.float).reshape(-1,1)
+                    tbsize[pol] = tbinsize[pol]
+                else:
+                    unflagged_ind = NP.logical_not(self.flag_stack[pol])
+                    Vf_acc[pol] = NP.nansum(self.Vf_stack[pol][unflagged_ind,:], axis=0, keepdims=True)
+                    twts[pol] = NP.sum(unflagged_ind).astype(NP.float).reshape(-1,1)
+                    # twts[pol] = NP.asarray(len(self.timestamps) - NP.sum(self.flag_stack[pol])).reshape(-1,1)
+                    tbsize[pol] = None
+            self.tbinsize = tbsize
+
+        # Compute the average from the accumulated visibilities
+        for pol in ['P11', 'P12', 'P21', 'P22']:
+            Vf_avg[pol] = Vf_acc[pol] / twts[pol]
+
+        self.Vf_avg = Vf_avg
+        self.twts = twts
+
+################################################################################
 
 class InterferometerArray:
 
@@ -3764,15 +2109,29 @@ class InterferometerArray:
                               interferometer label). The value under each label 
                               key is another dictionary with the following keys 
                               and information:
-                              'flag'         [boolean] if True, this cross-
-                                             polarization for this interferometer
-                                             will not be mapped to the grid
-                              'gridind'      [numpy vector] one-dimensional index 
-                                             into the three-dimensional grid 
-                                             locations where the interferometer
-                                             contributes illumination and 
-                                             visibilities. The one-dimensional 
-                                             indices are obtained using numpy's
+                              'twts'         [scalar] if positive, indicates
+                                             the number of timestamps that 
+                                             have gone into the measurement of  
+                                             complex Vf made by the 
+                                             interferometer under the 
+                                             specific polarization. If zero, it
+                                             indicates no unflagged timestamp 
+                                             data was found for the 
+                                             interferometer and will not 
+                                             contribute to the complex grid 
+                                             illumination and visibilities
+                              'twts'         [scalar] denotes the number of 
+                                             timestamps for which the 
+                                             interferometer data was not flagged
+                                             which were used in stacking and 
+                                             averaging
+                              'gridind'      [numpy vector] one-dimensional 
+                                             index into the three-dimensional 
+                                             grid locations where the 
+                                             interferometer contributes 
+                                             illumination and visibilities. The 
+                                             one-dimensional indices are 
+                                             obtained using numpy's 
                                              multi_ravel_index() using the grid 
                                              shape, n_u x n_v x nchan
                               'illumination' [numpy vector] complex grid 
@@ -3852,6 +2211,12 @@ class InterferometerArray:
                     Routine to return the interferometer label and baseline 
                     vectors (sorted by interferometer label if specified)
 
+    refresh_antenna_pairs()
+                    Refresh the individual antennas in the interferometer(s) 
+                    with the information in the Antenna instances in the 
+                    attribute antenna_array which is an instance of class 
+                    AntennaArray
+
     FX()            Computes the Fourier transform of the cross-correlated time 
                     series of the interferometer pairs in the interferometer 
                     array to compute the visibility spectra
@@ -3861,8 +2226,20 @@ class InterferometerArray:
                     the interferometer array
 
     get_visibilities()
-                    Routine to return the interferometer label and visibilities 
-                    (sorted by interferometer label if specified)
+                    Routine to return the interferometer labels, time-based 
+                    weights and visibilities (sorted by interferometer label 
+                    if specified) based on selection criteria specified by 
+                    flags, timestamps, frequency channels, labels and data pool 
+                    (most recent, stack, averaged, etc.)
+
+    stack()         Stacks and computes visibilities and flags for all the 
+                    interferometers in the interferometer array from the 
+                    individual antennas in the pair.
+
+    accumulate()    Accumulate and average visibility spectra across timestamps 
+                    under different polarizations depending on the time bin 
+                    size for the corresponding polarization for all 
+                    interferometers in the interferometer array
 
     grid()          Routine to produce a grid based on the interferometer array 
 
@@ -3893,6 +2270,12 @@ class InterferometerArray:
                     incrementally de-project the visibilities and illumination 
                     patterns of specific antenna pairs from an already existing 
                     grid.
+
+    quick_beam_synthesis()
+                    A quick generator of synthesized beam using interferometer 
+                    array grid illumination pattern using the center frequency. 
+                    Not intended to be used rigorously but rather for comparison 
+                    purposes and making quick plots
 
     update_flags()  Updates all flags in the interferometer array followed by 
                     any flags that need overriding through inputs of specific 
@@ -4006,7 +2389,7 @@ class InterferometerArray:
         self.t = None
         self.timestamp = self.antenna_array.timestamp
 
-    ################################################################################# 
+    ############################################################################
 
     def __str__(self):
         printstr = '\n-----------------------------------------------------------------'
@@ -4018,26 +2401,26 @@ class InterferometerArray:
         printstr += '\n-----------------------------------------------------------------'
         return printstr
 
-    ################################################################################# 
+    ############################################################################
 
     def __add__(self, others):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Operator overloading for adding interferometer(s)
     
         Inputs:
     
         others     [Instance of class InterferometerArray, dictionary holding
-                   instance(s) of class Interferometer, list of instances of class 
-                   Interferometer, or a single instance of class Interferometer] If 
-                   a dictionary is provided, the keys should be the antenna labels 
-                   and the values should be instances  of class Interferometer. If 
-                   a list is provided, it should be a list of valid instances of 
-                   class Interferometer. These instance(s) of class Interferometer 
-                   will be added to the existing instance of InterferometerArray
-                   class.
-        ----------------------------------------------------------------------------
+                   instance(s) of class Interferometer, list of instances of 
+                   class Interferometer, or a single instance of class 
+                   Interferometer] If a dictionary is provided, the keys should 
+                   be the antenna labels and the values should be instances  of 
+                   class Interferometer. If a list is provided, it should be a 
+                   list of valid instances of class Interferometer. These 
+                   instance(s) of class Interferometer will be added to the 
+                   existing instance of InterferometerArray class.
+        ------------------------------------------------------------------------
         """
 
         retval = self
@@ -4083,51 +2466,51 @@ class InterferometerArray:
 
         return retval
 
-    ################################################################################# 
+    ############################################################################
 
     def __radd__(self, others):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Operator overloading for adding interferometer(s)
     
         Inputs:
     
         others     [Instance of class InterferometerArray, dictionary holding 
-                   instance(s) of class Interferometer, list of instances of class 
-                   Interferometer, or a single instance of class Interferometer] 
-                   If a dictionary is provided, the keys should be the 
-                   interferometer labels and the values should be instances of 
-                   class Interferometer. If a list is provided, it should be a list 
-                   of valid instances of class Interferometer. These instance(s) 
-                   of class Interferometer will be added to the existing instance 
-                   of InterferometerArray class.
-        ----------------------------------------------------------------------------
+                   instance(s) of class Interferometer, list of instances of 
+                   class Interferometer, or a single instance of class 
+                   Interferometer] If a dictionary is provided, the keys should 
+                   be the interferometer labels and the values should be 
+                   instances of class Interferometer. If a list is provided, it 
+                   should be a list of valid instances of class Interferometer. 
+                   These instance(s) of class Interferometer will be added to 
+                   the existing instance of InterferometerArray class.
+        ------------------------------------------------------------------------
         """
 
         return self.__add__(others)
 
-    ################################################################################# 
+    ############################################################################
 
     def __sub__(self, others):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Operator overloading for removing interferometer(s)
     
         Inputs:
     
         others     [Instance of class InterferometerArray, dictionary holding 
-                   instance(s) of class Interferometer, list of instances of class 
-                   Interferometer, list of strings containing interferometer labels 
-                   or a single instance of class Interferometer] If a dictionary is 
-                   provided, the keys should be the interferometer labels and the 
-                   values should be instances of class Interferometer. If a list 
-                   is provided, it should be a list of valid instances of class 
-                   Interferometer. These instance(s) of class Interferometer will 
-                   be removed from the existing instance of InterferometerArray 
-                   class.
-        ----------------------------------------------------------------------------
+                   instance(s) of class Interferometer, list of instances of 
+                   class Interferometer, list of strings containing 
+                   interferometer labels or a single instance of class 
+                   Interferometer] If a dictionary is provided, the keys should 
+                   be the interferometer labels and the values should be 
+                   instances of class Interferometer. If a list is provided, it 
+                   should be a list of valid instances of class Interferometer. 
+                   These instance(s) of class Interferometer will be removed 
+                   from the existing instance of InterferometerArray class.
+        ------------------------------------------------------------------------
         """
 
         retval = self
@@ -4167,27 +2550,27 @@ class InterferometerArray:
 
         return retval
 
-    ################################################################################# 
+    ############################################################################
 
     def add_interferometers(self, A=None):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Routine to add interferometer(s) to the interferometer array instance. 
         A wrapper for operator overloading __add__() and __radd__()
     
         Inputs:
     
         A          [Instance of class InterferometerArray, dictionary holding 
-                   instance(s) of class Interferometer, list of instances of class 
-                   Interferometer, or a single instance of class Interferometer] If 
-                   a dictionary is provided, the keys should be the interferometer 
-                   labels and the values should be instances of class 
-                   Interferometer. If a list is provided, it should be a list of 
-                   valid instances of class Interferometer. These instance(s) of 
-                   class Interferometer will be added to the existing instance of 
-                   InterferometerArray class.
-        ----------------------------------------------------------------------------
+                   instance(s) of class Interferometer, list of instances of 
+                   class Interferometer, or a single instance of class 
+                   Interferometer] If a dictionary is provided, the keys should 
+                   be the interferometer labels and the values should be 
+                   instances of class Interferometer. If a list is provided, it 
+                   should be a list of valid instances of class Interferometer. 
+                   These instance(s) of class Interferometer will be added to 
+                   the existing instance of InterferometerArray class.
+        ------------------------------------------------------------------------
         """
 
         if A is None:
@@ -4197,27 +2580,27 @@ class InterferometerArray:
         else:
             print 'Input(s) is/are not instance(s) of class Interferometer.'
 
-    ################################################################################# 
+    ############################################################################
 
     def remove_interferometers(self, A=None):
 
         """
-        ----------------------------------------------------------------------------
-        Routine to remove interferometer(s) from the interferometer array instance. 
-        A wrapper for operator overloading __sub__()
+        ------------------------------------------------------------------------
+        Routine to remove interferometer(s) from the interferometer array 
+        instance. A wrapper for operator overloading __sub__()
     
         Inputs:
     
         A          [Instance of class InterferometerArray, dictionary holding 
-                   instance(s) of class Interferometer, list of instances of class 
-                   Interferometer, or a single instance of class Interferometer] If 
-                   a dictionary is provided, the keys should be the interferometer 
-                   labels and the values should be instances of class 
-                   Interferometer. If a list is provided, it should be a list of 
-                   valid instances of class Interferometer. These instance(s) of 
-                   class Interferometer will be removed from the existing instance 
-                   of InterferometerArray class.
-        ----------------------------------------------------------------------------
+                   instance(s) of class Interferometer, list of instances of 
+                   class Interferometer, or a single instance of class 
+                   Interferometer] If a dictionary is provided, the keys should 
+                   be the interferometer labels and the values should be 
+                   instances of class Interferometer. If a list is provided, it 
+                   should be a list of valid instances of class Interferometer. 
+                   These instance(s) of class Interferometer will be removed 
+                   from the existing instance of InterferometerArray class.
+        ------------------------------------------------------------------------
         """
 
         if A is None:
@@ -4225,31 +2608,31 @@ class InterferometerArray:
         else:
             self = self.__sub__(A)
 
-    ################################################################################# 
+    ############################################################################
 
     def interferometers_containing_antenna(self, antenna_label):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Find interferometer pairs which contain the specified antenna labels
 
         Inputs:
 
-        antenna_label [list] List of antenna labels which will be searched for in
-                      the interferometer pairs in the interferometer array.
+        antenna_label [list] List of antenna labels which will be searched for 
+                      in the interferometer pairs in the interferometer array.
 
         Outputs:
 
         ant_pair_labels
-                      [list] List of interferometer pair labels containing one of
-                      more of the specified antenna labels
+                      [list] List of interferometer pair labels containing one 
+                      of more of the specified antenna labels
 
-        ant_order     [list] List of antenna order of antenna labels found in the 
-                      interferometer pairs of the interferometer array. If the 
-                      antenna label appears as the first antenna in the antenna 
-                      pair, ant_order is assigned to 1 and if it is the second 
-                      antenna in the pair, it is assigned to 2.
-        ----------------------------------------------------------------------------
+        ant_order     [list] List of antenna order of antenna labels found in 
+                      the interferometer pairs of the interferometer array. If 
+                      the antenna label appears as the first antenna in the 
+                      antenna pair, ant_order is assigned to 1 and if it is 
+                      the second antenna in the pair, it is assigned to 2.
+        ------------------------------------------------------------------------
         """
 
         ant_pair_labels = [ant_pair_label for ant_pair_label in self.interferometers if antenna_label in ant_pair_label]
@@ -4257,38 +2640,38 @@ class InterferometerArray:
 
         return (ant_pair_labels, ant_order)
 
-    ################################################################################# 
+    ############################################################################
 
     def baseline_vectors(self, pol=None, flag=False, sort=True):
         
         """
-        ----------------------------------------------------------------------------
-        Routine to return the interferometer label and baseline vectors (sorted by
-        interferometer label if specified)
+        ------------------------------------------------------------------------
+        Routine to return the interferometer label and baseline vectors (sorted 
+        by interferometer label if specified)
 
         Keyword Inputs:
 
         pol      [string] select baselines of this polarization that are either 
                  flagged or unflagged as specified by input parameter flag. 
-                 Allowed values are 'P11', 'P12', 'P21', and 'P22'. Default=None. 
-                 This means all baselines are returned irrespective of the flags
+                 Allowed values are 'P11', 'P12', 'P21', and 'P22'. 
+                 Default=None. This means all baselines are returned 
+                 irrespective of the flags
 
-        flag     [boolean] If False, return unflagged baselines, otherwise return
-                 flagged ones. Default=None means return all baselines
+        flag     [boolean] If False, return unflagged baselines, otherwise 
+                 return flagged ones. Default=None means return all baselines
                  independent of flagging or polarization
 
-        sort     [boolean] If True, returned interferometer information is sorted 
-                 by interferometer's first antenna label. Default = True.
+        sort     [boolean] If True, returned interferometer information is 
+                 sorted by interferometer's first antenna label. Default = True.
 
         Output:
 
         outdict  [dictionary] Output consists of a dictionary with the following 
                  keys and information:
-                 'labels':    Contains a numpy array of strings of interferometer 
-                              labels
+                 'labels':    list of tuples of strings of interferometer labels
                  'baselines': baseline vectors of interferometers (3-column 
                               array)
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         if not isinstance(sort, bool):
@@ -4341,16 +2724,80 @@ class InterferometerArray:
 
         return outdict
 
-    ################################################################################# 
+    ############################################################################
+
+    def refresh_antenna_pairs(self, interferometer_labels=None,
+                               antenna_labels=None):
+
+        """
+        ------------------------------------------------------------------------
+        Refresh the individual antennas in the interferometer(s) with the 
+        information in the Antenna instances in the attribute antenna_array
+        which is an instance of class AntennaArray
+
+        Inputs:
+
+        interferometer_labels
+                  [list] list of interferometer labels each given as a tuple 
+                  of antenna labels. The antennas in these pairs are refreshed 
+                  using the corresponding antenna instances in the attribute
+                  antenna_array. Default = None.
+
+        antenna_labels 
+                  [list] list of antenna labels to determine which 
+                  interferometers they contribute to. The antenna pairs in 
+                  these interferometers are refreshed based on the current 
+                  antenna instances in the attribute antenna_array. 
+                  Default = None.
+
+        If both input keywords interferometer_labels and antenna_labels are 
+        set to None, all the interferometer instances are refreshed.
+        ------------------------------------------------------------------------
+        """
+
+        ilabels = []
+        if interferometer_labels is not None:
+            if not isinstance(interferometer_labels, list):
+                raise TypeError('Input keyword interferometer_labels must be a list')
+            ilabels = antenna_labels
+        if antenna_labels is not None:
+            if not isinstance(interferometer_labels, list):
+                raise TypeError('Input keyword interferometer_labels must be a list')
+            ant_pair_labels, = self.interferometers_containing_antenna(antenna_labels)
+            ilabels += ant_pair_labels
+
+        if len(ilabels) == 0:
+            ilabels = self.interferometers.keys()
+
+        for antpair_label in ilabels:
+            if antpair_label in self.interferometers:
+                self.interferometers[antpair_label].refresh_antenna_pairs(A1=self.antenna_array.antennas[antpair_label[0]], A2=self.antenna_array.antennas[antpair_label[1]])
+
+    ############################################################################
 
     def FX(self, parallel=False, nproc=None):
 
         """
-        ----------------------------------------------------------------------------
-        Computes the Fourier transform of the cross-correlated time series of the
-        interferometer pairs in the interferometer array to compute the visibility
-        spectra
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
+        Computes the Fourier transform of the cross-correlated time series of 
+        the interferometer pairs in the interferometer array to compute the 
+        visibility spectra
+
+        Inputs:
+
+        parallel   [boolean] specifies if parallelization is to be invoked. 
+                   False (default) means only serial processing
+
+        nproc      [integer] specifies number of independent processes to spawn.
+                   Default = None, means automatically determines the number of 
+                   process cores in the system and use one less than that to 
+                   avoid locking the system for other processes. Applies only 
+                   if input parameter 'parallel' (see above) is set to True. 
+                   If nproc is set to a value more than the number of process
+                   cores in the system, it will be reset to number of process 
+                   cores in the system minus one to avoid locking the system out 
+                   for other processes
+        ------------------------------------------------------------------------
         """
         
         if self.t is None:
@@ -4382,15 +2829,15 @@ class InterferometerArray:
                 self.interferometers[interferometer.label] = interferometer
             del updated_interferometers
 
-    ################################################################################# 
+    ############################################################################
 
     def XF(self):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Computes the visibility spectra by cross-multiplying the electric field
         spectra for all the interferometer pairs in the interferometer array
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
         
         if self.t is None:
@@ -4406,12 +2853,12 @@ class InterferometerArray:
             self.interferometers[label].XF()
 
         
-    ################################################################################# 
+    ############################################################################
 
-    def get_visibilities(self, pol, flag=False, sort=True):
+    def get_visibilities_old(self, pol, flag=None, sort=True):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Routine to return the interferometer label and visibilities (sorted by
         interferometer label if specified)
 
@@ -4423,20 +2870,21 @@ class InterferometerArray:
                  these values must be specified.
 
         flag     [boolean] If False, return visibilities of unflagged baselines,
-                 otherwise return flagged ones. Default=None means all visibilities
-                 independent of flagging are returned.
+                 otherwise return flagged ones. Default=None means all 
+                 visibilities independent of flagging are returned.
 
-        sort     [boolean] If True, returned interferometer information is sorted 
-                 by interferometer's first antenna label. Default = True.
+        sort     [boolean] If True, returned interferometer information is 
+                 sorted by interferometer's first antenna label. Default = True.
 
         Output:
 
         outdict  [dictionary] Output consists of a dictionary with the following 
                  keys and information:
-                 'labels':    Contains a numpy array of strings of interferometer 
-                              labels
-                 'visibilities': interferometer visibilities (n_bl x nchan array)
-        ----------------------------------------------------------------------------
+                 'labels':    Contains a numpy array of strings of 
+                              interferometer labels
+                 'visibilities': 
+                              interferometer visibilities (n_bl x nchan array)
+        ------------------------------------------------------------------------
         """
 
         try: 
@@ -4486,12 +2934,196 @@ class InterferometerArray:
 
         return outdict
 
-    ################################################################################# 
+    ############################################################################
 
-    def grid(self, uvspacing=0.5, uvpad=None, pow2=True, pol=None):
+    def get_visibilities(self, pol, flag=None, tselect=None, fselect=None,
+                             bselect=None, datapool=None, sort=True):
+
+        """
+        ------------------------------------------------------------------------
+        Routine to return the interferometer labels, time-based weights and 
+        visibilities (sorted by interferometer label if specified) based on 
+        selection criteria specified by flags, timestamps, frequency channels,
+        labels and data pool (most recent, stack, averaged, etc.)
+
+        Keyword Inputs:
+
+        pol      [string] select baselines of this polarization that are either 
+                 flagged or unflagged as specified by input parameter flag. 
+                 Allowed values are 'P11', 'P12', 'P21', and 'P22'. Only one of
+                 these values must be specified.
+
+        flag     [boolean] If False, return visibilities of unflagged baselines,
+                 otherwise return flagged ones. Default=None means all 
+                 visibilities independent of flagging are returned.
+
+        tselect  [scalar, list, numpy array] timestamp index for visibilities
+                 selection. For most recent visibility, it must be set to -1.
+                 For all other selections, indices in tselect must be in the 
+                 valid range of indices along time axis for stacked and 
+                 averaged visibilities. Default=None means most recent data is
+                 selected. 
+
+        fselect  [scalar, list, numpy array] frequency channel index for 
+                 visibilities selection. Indices must be in the valid range of
+                 indices along the frequency axis for visibilities. 
+                 Default=None selects all frequency channels
+
+        bselect  [list of tuples] labels of interferometers to select. If set 
+                 to None (default) all interferometers are selected. 
+
+        datapool [string] denotes the data pool from which visibilities are to
+                 be selected. Accepted values are 'current', 'stack', 'avg' and
+                 None (default, same as 'current'). If set to None or 
+                 'current', the value in tselect is ignored and only 
+                 visibilities of the most recent timestamp are selected. If set
+                 to None or 'current' the attribute Vf_stack is checked first 
+                 and if unavailable, attribute crosspol.Vf is used. For 'stack'
+                 and 'avg', attributes Vf_stack and Vf_avg are used 
+                 respectively
+
+        sort     [boolean] If True, returned interferometer information is 
+                 sorted by interferometer's first antenna label. Default=True.
+
+        Output:
+
+        outdict  [dictionary] Output consists of a dictionary with the following 
+                 keys and information:
+                 'labels'        [list of tuples] Contains a list of 
+                                 interferometer labels
+                 'visibilities'  [list or numpy array] interferometer 
+                                 visibilities under the specified polarization. 
+                                 In general, it is a list of 
+                                 numpy arrays where each array in the list 
+                                 corresponds to 
+                                 an individual interferometer and the size of
+                                 each numpy array is n_ts x nchan. If input 
+                                 keyword flag is set to None, the visibilities 
+                                 are rearranged into a numpy array of size
+                                 n_ts x n_bl x nchan. 
+                 'twts'          [list or numpy array] weights based on flags
+                                 along time axis under the specified 
+                                 polarization. In general it is a list of numpy
+                                 arrays where each array in the list corresponds 
+                                 to an individual interferometer and the size 
+                                 of each array is n_ts x 1. If input 
+                                 keyword flag is set to None, the time weights 
+                                 are rearranged into a numpy array of size
+                                 n_ts x n_bl x 1
+        ------------------------------------------------------------------------
+        """
+
+        if not isinstance(sort, bool):
+            raise TypeError('sort keyword has to be a Boolean value.')
+
+        if bselect is None:
+            labels = self.interferometers.keys()
+        elif isinstance(bselect, list):
+            labels = [label for label in bselect if label in self.interferometers]
+            
+        if sort:
+            labels_orig = copy.deepcopy(labels)
+            labels = [label for label in sorted(labels_orig, key=lambda tup: tup[0])]
+
+        visinfo = [self.interferometers[label].get_visibilities(pol, flag=flag, tselect=tselect, fselect=fselect, datapool=datapool) for label in labels]
+      
+        outdict = {}
+        outdict['labels'] = labels
+        outdict['twts'] = [vinfo['twts'] for vinfo in visinfo]
+        outdict['visibilities'] = [vinfo['visibilities'] for vinfo in visinfo]
+        if flag is None:
+            outdict['visibilities'] = NP.swapaxes(NP.asarray(outdict['visibilities']), 0, 1)
+            outdict['twts'] = NP.swapaxes(NP.asarray(outdict['twts']), 0, 1)
+            outdict['twts'] = outdict['twts'][:,:,NP.newaxis]
+
+        return outdict
+
+    ############################################################################
+    
+    def stack(self, on_flags=True, on_data=True, parallel=False, nproc=None):
+
+        """
+        ------------------------------------------------------------------------
+        Stacks and computes visibilities and flags for all the interferometers 
+        in the interferometer array from the individual antennas in the pair.
+
+        Inputs:
+
+        on_flags  [boolean] if set to True (default), combines the time-stacked
+                  electric field flags from individual antennas from the 
+                  common timestamps into time-stacked visibility flags
+
+        on_data   [boolean] if set to True (default), combines the time-stacked
+                  electric fields from individual antennas from the common
+                  timestamps into time-stacked visibilities
+
+        parallel  [boolean] specifies if parallelization is to be invoked. 
+                  False (default) means only serial processing
+
+        nproc     [integer] specifies number of independent processes to spawn.
+                  Default = None, means automatically determines the number of 
+                  process cores in the system and use one less than that to 
+                  avoid locking the system for other processes. Applies only 
+                  if input parameter 'parallel' (see above) is set to True. 
+                  If nproc is set to a value more than the number of process
+                  cores in the system, it will be reset to number of process 
+                  cores in the system minus one to avoid locking the system out 
+                  for other processes
+        ------------------------------------------------------------------------
+        """
+
+        if parallel:
+            if nproc is None:
+                nproc = max(MP.cpu_count()-1, 1) 
+            else:
+                nproc = min(nproc, max(MP.cpu_count()-1, 1))
+
+            list_of_perform_flag_stack = [on_flags] * len(self.interferometers)
+            list_of_perform_data_stack = [on_data] * len(self.interferometers)
+
+            pool = MP.Pool(processes=nproc)
+            updated_interferometers = pool.map(unwrap_interferometer_stack, IT.izip(self.interferometers.values(), list_of_perform_flag_stack, list_of_perform_data_stack))
+            pool.close()
+            pool.join()
+            for interferometer in updated_interferometers: 
+                self.interferometers[interferometer.label] = interferometer
+            del updated_interferometers
+        else:
+            for label in self.interferometers:
+                self.interferometers[label].stack(on_flags=on_flags, on_data=on_data)
+
+    ############################################################################
+
+    def accumulate(self, tbinsize=None):
+
+        """
+        ------------------------------------------------------------------------
+        Accumulate and average visibility spectra across timestamps under 
+        different polarizations depending on the time bin size for the 
+        corresponding polarization for all interferometers in the 
+        interferometer array
+
+        Inputs:
+
+        tbinsize [scalar or dictionary] Contains bin size of timestamps while
+                 stacking. Default = None means all visibility spectra over all
+                 timestamps are averaged. If scalar, the same (positive) value 
+                 applies to all polarizations. If dictionary, timestamp bin size
+                 (positive) is provided under each key 'P11', 'P12', 'P21', 
+                 'P22'. If any of the keys is missing the visibilities for that 
+                 polarization are averaged over all timestamps.
+        ------------------------------------------------------------------------
+        """
+
+        for label in self.interferometers:
+            self.interferometers[label].accumulate(tbinsize=tbinsize)
+
+    ############################################################################
+
+    def grid(self, uvspacing=0.5, uvpad=None, pow2=True):
         
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Routine to produce a grid based on the interferometer array 
 
         Inputs:
@@ -4501,21 +3133,17 @@ class InterferometerArray:
                     Default = 0.5
 
         xypad       [List] Padding to be applied around the antenna locations 
-                    before forming a grid. List elements should be positive. If it 
-                    is a one-element list, the element is applicable to both x and 
-                    y axes. If list contains three or more elements, only the 
-                    first two elements are considered one for each axis. 
+                    before forming a grid. List elements should be positive. If 
+                    it is a one-element list, the element is applicable to both 
+                    x and y axes. If list contains three or more elements, only 
+                    the first two elements are considered one for each axis. 
                     Default = None.
 
-        pow2        [Boolean] If set to True, the grid is forced to have a size a 
-                    next power of 2 relative to the actual sie required. If False,
-                    gridding is done with the appropriate size as determined by
-                    uvspacing. Default = True.
-
-        pol         [String] The polarization to be gridded. Can be set to 'P11', 
-                    'P12', 'P21', or 'P22'. If set to None, gridding for all the
-                    polarizations is performed. 
-        ----------------------------------------------------------------------------
+        pow2        [Boolean] If set to True, the grid is forced to have a size 
+                    a next power of 2 relative to the actual sie required. If 
+                    False, gridding is done with the appropriate size as 
+                    determined by uvspacing. Default = True.
+        ------------------------------------------------------------------------
         """
 
         if self.f is None:
@@ -4543,7 +3171,7 @@ class InterferometerArray:
 
         self.grid_ready = True
 
-    ################################################################################# 
+    ############################################################################
 
     def grid_convolve(self, pol=None, antpairs=None, unconvolve_existing=False,
                       normalize=False, method='NN', distNN=NP.inf, tol=None,
@@ -4552,31 +3180,32 @@ class InterferometerArray:
                       parallel=False, nproc=None, pp_method='pool', verbose=True): 
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Routine to project the complex illumination power pattern and the 
-        visibilities on the grid. It can operate on the entire interferometer array 
-        or incrementally project the visibilities and complex illumination power 
-        patterns from specific interferometers on to an already existing grid. (The
-        latter is not implemented yet)
+        visibilities on the grid. It can operate on the entire interferometer 
+        array or incrementally project the visibilities and complex illumination 
+        power patterns from specific interferometers on to an already existing 
+        grid. (The latter is not implemented yet)
 
         Inputs:
 
-        pol         [String] The polarization to be gridded. Can be set to 'P11', 
-                    'P12', 'P21' or 'P22'. If set to None, gridding for all the
-                    polarizations is performed. Default = None
+        pol         [String] The polarization to be gridded. Can be set to 
+                    'P11', 'P12', 'P21' or 'P22'. If set to None, gridding for 
+                    all the polarizations is performed. Default = None
 
-        antpairs    [instance of class InterferometerArray, single instance or list 
-                    of instances of class Interferometer, or a dictionary holding 
-                    instances of class Interferometer] If a dictionary is provided, 
-                    the keys should be the interferometer labels and the values 
-                    should be instances of class Interferometer. If a list is 
-                    provided, it should be a list of valid instances of class 
-                    Interferometer. These instance(s) of class Interferometer will 
-                    be merged to the existing grid contained in the instance of 
-                    InterferometerArray class. If ants is not provided (set to 
-                    None), the gridding operations will be performed on the entire
-                    set of interferometers contained in the instance of class 
-                    InterferometerArray. Default = None.
+        antpairs    [instance of class InterferometerArray, single instance or 
+                    list of instances of class Interferometer, or a dictionary 
+                    holding instances of class Interferometer] If a dictionary 
+                    is provided, the keys should be the interferometer labels 
+                    and the values should be instances of class Interferometer. 
+                    If a list is provided, it should be a list of valid 
+                    instances of class Interferometer. These instance(s) of 
+                    class Interferometer will be merged to the existing grid 
+                    contained in the instance of InterferometerArray class. If 
+                    ants is not provided (set to None), the gridding operations 
+                    will be performed on the entire set of interferometers 
+                    contained in the instance of class InterferometerArray. 
+                    Default=None.
 
         unconvolve_existing
                    [Boolean] Default = False. If set to True, the effects of
@@ -4585,14 +3214,15 @@ class InterferometerArray:
                    measurements on the grid, if the interferometer(s) is/are 
                    already found to in the set of interferometers held by the 
                    instance of InterferometerArray. If False and if one or more 
-                   interferometer instances specified are already found to be held 
-                   in the instance of class InterferometerArray, the code will stop
-                   raising an error indicating the gridding oepration cannot
-                   proceed. 
+                   interferometer instances specified are already found to be 
+                   held in the instance of class InterferometerArray, the code 
+                   will stop raising an error indicating the gridding oepration 
+                   cannot proceed. 
 
-        normalize  [Boolean] Default = False. If set to True, the gridded weights
-                   are divided by the sum of weights so that the gridded weights 
-                   add up to unity. (Need to work on normaliation)
+        normalize  [Boolean] Default = False. If set to True, the gridded 
+                   weights are divided by the sum of weights so that the 
+                   gridded weights add up to unity. (Need to work on 
+                   normaliation)
 
         method     [string] The gridding method to be used in applying the 
                    interferometer weights on to the interferometer array grid. 
@@ -4600,8 +3230,8 @@ class InterferometerArray:
                    (cubic spline), or 'BL' (Bi-linear). In case of applying grid 
                    weights by 'NN' method, an optional distance upper bound for 
                    the nearest neighbour can be provided in the parameter distNN 
-                   to prune the search and make it efficient. Currently, only the
-                   nearest neighbour method is operational.
+                   to prune the search and make it efficient. Currently, only 
+                   the nearest neighbour method is operational.
 
         distNN     [scalar] A positive value indicating the upper bound on 
                    distance to the nearest neighbour in the gridding process. It 
@@ -4620,10 +3250,10 @@ class InterferometerArray:
                    maxmatch=1. 
 
         tol        [scalar] If set, only lookup data with abs(val) > tol will be 
-                   considered for nearest neighbour lookup. Default = None implies 
-                   all lookup values will be considered for nearest neighbour 
-                   determination. tol is to be interpreted as a minimum value 
-                   considered as significant in the lookup table. 
+                   considered for nearest neighbour lookup. Default = None 
+                   implies all lookup values will be considered for nearest 
+                   neighbour determination. tol is to be interpreted as a 
+                   minimum value considered as significant in the lookup table. 
 
         identical_interferometers
                    [boolean] indicates if all interferometer elements are to be
@@ -4636,25 +3266,26 @@ class InterferometerArray:
                    assumes that attribute wtspos is given for a
                    reference frequency which need to be scaled for the frequency
                    channels. Will be ignored if the number of elements of list 
-                   in this attribute under the specific polarization are the same
-                   as the number of frequency channels.
+                   in this attribute under the specific polarization are the 
+                   same as the number of frequency channels.
 
-        mapping    [string] indicates the type of mapping between baseline locations
-                   and the grid locations. Allowed values are 'sampled' and 
-                   'weighted' (default). 'sampled' means only the baseline measurement 
-                   closest ot a grid location contributes to that grid location, 
-                   whereas, 'weighted' means that all the baselines contribute in
-                   a weighted fashion to their nearest grid location. The former 
-                   is faster but possibly discards baseline data whereas the latter
-                   is slower but includes all data along with their weights.
+        mapping    [string] indicates the type of mapping between baseline 
+                   locations and the grid locations. Allowed values are 
+                   'sampled' and 'weighted' (default). 'sampled' means only the 
+                   baseline measurement closest ot a grid location contributes 
+                   to that grid location, whereas, 'weighted' means that all the 
+                   baselines contribute in a weighted fashion to their nearest 
+                   grid location. The former is faster but possibly discards 
+                   baseline data whereas the latter is slower but includes all 
+                   data along with their weights.
 
         wts_change [boolean] indicates if weights and/or their lcoations have 
                    changed from the previous intergration or snapshot. 
                    Default=False means they have not changed. In such a case the 
                    baseline-to-grid mapping and grid illumination pattern do not 
-                   have to be determined, and mapping and values from the previous 
-                   snapshot can be used. If True, a new mapping has to be 
-                   determined.
+                   have to be determined, and mapping and values from the 
+                   previous snapshot can be used. If True, a new mapping has to 
+                   be determined.
 
         parallel   [boolean] specifies if parallelization is to be invoked. 
                    False (default) means only serial processing
@@ -4681,7 +3312,7 @@ class InterferometerArray:
 
         verbose    [boolean] If True, prints diagnostic and progress messages. 
                    If False (default), suppress printing such messages.
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         eps = 1.0e-10
@@ -4724,7 +3355,7 @@ class InterferometerArray:
                         self.ordered_labels = bl_dict['labels']
                         n_bl = bl_xy.shape[0]
 
-                        vis_dict = self.get_visibilities(cpol, flag=False, sort=True)
+                        vis_dict = self.get_visibilities_old(cpol, flag=False, sort=True)
                         vis = vis_dict['visibilities'].astype(NP.complex64)
 
                         # Since antenna pairs are identical, read from first antenna pair, since wtspos are scaled with frequency, read from first frequency channel
@@ -4754,10 +3385,18 @@ class InterferometerArray:
                     bl_xy = bl_dict['baselines'][:,:2] # n_bl x 2
                     n_bl = bl_xy.shape[0]
 
-                    Vf_dict = self.get_visibilities(cpol, flag=None, sort=True)
-                    Vf = Vf_dict['visibilities'].astype(NP.complex64)  # n_bl x nchan
+                    # Vf_dict = self.get_visibilities_old(cpol, flag=None, sort=True)
+                    # Vf = Vf_dict['visibilities'].astype(NP.complex64)  # n_bl x nchan
+
+                    Vf_dict = self.get_visibilities(cpol, flag=None, tselect=-1, fselect=None, bselect=None, datapool='avg', sort=True)
+                    Vf = Vf_dict['visibilities'].astype(NP.complex64)  #  (n_ts=1) x n_bl x nchan
+                    Vf = NP.squeeze(Vf)  # n_bl x nchan
                     if Vf.shape[0] != n_bl:
                         raise ValueError('Encountered unexpected behavior. Need to debug.')
+                    bl_labels = Vf_dict['labels']
+                    twts = Vf_dict['twts']  # (n_ts=1) x n_bl x (nchan=1)
+                    twts = NP.squeeze(twts)
+
                     if verbose:
                         print 'Gathered baseline data for gridding convolution for timestamp {0}'.format(self.timestamp)
 
@@ -4968,6 +3607,7 @@ class InterferometerArray:
                                         if self.grid_mapper[cpol]['bl']['rev_ind_all'][job_ind] < self.grid_mapper[cpol]['bl']['rev_ind_all'][job_ind+1]:
         
                                             self.grid_mapper[cpol]['labels'][label] = {}
+                                            self.grid_mapper[cpol]['labels'][label]['twts'] = twts[bl_labels.index(label)]
                                             # self.grid_mapper[cpol]['labels'][label]['flag'] = self.interferometers[label].crosspol.flag[cpol]
         
                                             select_bl_ind = self.grid_mapper[cpol]['bl']['rev_ind_all'][self.grid_mapper[cpol]['bl']['rev_ind_all'][job_ind]:self.grid_mapper[cpol]['bl']['rev_ind_all'][job_ind+1]]
@@ -5016,6 +3656,7 @@ class InterferometerArray:
                                     if self.grid_mapper[cpol]['bl']['rev_ind_all'][j] < self.grid_mapper[cpol]['bl']['rev_ind_all'][j+1]:
     
                                         self.grid_mapper[cpol]['labels'][label] = {}
+                                        self.grid_mapper[cpol]['labels'][label]['twts'] = twts[bl_labels.index(label)]
                                         # self.grid_mapper[cpol]['labels'][label]['flag'] = self.interferometers[label].crosspol.flag[cpol]
     
                                         select_bl_ind = self.grid_mapper[cpol]['bl']['rev_ind_all'][self.grid_mapper[cpol]['bl']['rev_ind_all'][j]:self.grid_mapper[cpol]['bl']['rev_ind_all'][j+1]]
@@ -5063,6 +3704,7 @@ class InterferometerArray:
                                 if self.grid_mapper[cpol]['bl']['rev_ind_all'][j] < self.grid_mapper[cpol]['bl']['rev_ind_all'][j+1]:
                                     select_bl_ind = self.grid_mapper[cpol]['bl']['rev_ind_all'][self.grid_mapper[cpol]['bl']['rev_ind_all'][j]:self.grid_mapper[cpol]['bl']['rev_ind_all'][j+1]]
                                     self.grid_mapper[cpol]['labels'][label] = {}
+                                    self.grid_mapper[cpol]['labels'][label]['twts'] = twts[bl_labels.index(label)]
                                     # self.grid_mapper[cpol]['labels'][label]['flag'] = self.interferometers[label].crosspol.flag[cpol]
                                     if mapping == 'weighted':
                                         gridind_raveled_around_bl = self.grid_mapper[cpol]['grid']['ind_all'][select_bl_ind]
@@ -5125,7 +3767,7 @@ class InterferometerArray:
     
                                     for job_ind in xrange(job_start, min(job_start+nproc, num_bl)):    # Start the parallel processes and store the outputs in a queue
                                         label = self.ordered_labels[self.grid_mapper[cpol]['bl']['uniq_ind_all'][job_ind]]
-    
+                                        self.grid_mapper[cpol]['labels'][label]['twts'] = twts[bl_labels.index(label)]    
                                         if self.grid_mapper[cpol]['bl']['rev_ind_all'][job_ind] < self.grid_mapper[cpol]['bl']['rev_ind_all'][job_ind+1]:
         
                                             select_bl_ind = self.grid_mapper[cpol]['bl']['rev_ind_all'][self.grid_mapper[cpol]['bl']['rev_ind_all'][job_ind]:self.grid_mapper[cpol]['bl']['rev_ind_all'][job_ind+1]]
@@ -5161,6 +3803,7 @@ class InterferometerArray:
                                     if self.grid_mapper[cpol]['bl']['rev_ind_all'][j] < self.grid_mapper[cpol]['bl']['rev_ind_all'][j+1]:
                                         select_bl_ind = self.grid_mapper[cpol]['bl']['rev_ind_all'][self.grid_mapper[cpol]['bl']['rev_ind_all'][j]:self.grid_mapper[cpol]['bl']['rev_ind_all'][j+1]]
                                         label = self.ordered_labels[self.grid_mapper[cpol]['bl']['uniq_ind_all'][j]]
+                                        self.grid_mapper[cpol]['labels'][label]['twts'] = twts[bl_labels.index(label)]    
                                         gridind_raveled_around_bl = self.grid_mapper[cpol]['grid']['ind_all'][select_bl_ind]
                                         uniq_gridind_raveled_around_bl = NP.unique(gridind_raveled_around_bl)
                                         list_of_bl_labels += [label]
@@ -5189,6 +3832,7 @@ class InterferometerArray:
                                 if self.grid_mapper[cpol]['bl']['rev_ind_all'][j] < self.grid_mapper[cpol]['bl']['rev_ind_all'][j+1]:
                                     select_bl_ind = self.grid_mapper[cpol]['bl']['rev_ind_all'][self.grid_mapper[cpol]['bl']['rev_ind_all'][j]:self.grid_mapper[cpol]['bl']['rev_ind_all'][j+1]]
                                     label = self.ordered_labels[self.grid_mapper[cpol]['bl']['uniq_ind_all'][j]]
+                                    self.grid_mapper[cpol]['labels'][label]['twts'] = twts[bl_labels.index(label)]                                        
                                     self.grid_mapper[cpol]['labels'][label]['Vf'] = {}
                                     if mapping == 'weighted':
                                         gridind_raveled_around_bl = self.grid_mapper[cpol]['grid']['ind_all'][select_bl_ind]
@@ -5204,12 +3848,12 @@ class InterferometerArray:
                             if verbose:
                                 progress.finish()
 
-    ################################################################################# 
+    ############################################################################
 
     def make_grid_cube(self, pol=None, verbose=True):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Constructs the grid of complex power illumination and visibilities using 
         the gridding information determined for every baseline. Flags are taken
         into account while constructing this grid.
@@ -5222,7 +3866,7 @@ class InterferometerArray:
         
         verbose [boolean] If True, prints diagnostic and progress messages. 
                 If False (default), suppress printing such messages.
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         if pol is None:
@@ -5250,30 +3894,143 @@ class InterferometerArray:
 
             loopcount = 0
             num_unflagged = 0
+            sum_twts = 0.0
             for bllabel, blinfo in self.grid_mapper[cpol]['labels'].iteritems():
-                if not self.interferometers[bllabel].crosspol.flag[cpol]:
+                # if not self.interferometers[bllabel].crosspol.flag[cpol]:
+                if blinfo['twts'] > 0.0:
                     num_unflagged += 1
+                    sum_twts += blinfo['twts']
                     gridind_unraveled = NP.unravel_index(blinfo['gridind'], self.gridu.shape+(self.f.size,))
-                    self.grid_illumination[cpol][gridind_unraveled] += blinfo['illumination']
+                    # self.grid_illumination[cpol][gridind_unraveled] += blinfo['illumination'] * blinfo['twts']
+                    # self.grid_Vf[cpol][gridind_unraveled] += blinfo['Vf'] * blinfo['twts']
+                    self.grid_illumination[cpol][gridind_unraveled] += blinfo['illumination']                    
                     self.grid_Vf[cpol][gridind_unraveled] += blinfo['Vf']
 
                 progress.update(loopcount+1)
                 loopcount += 1
             progress.finish()
+
+            # self.grid_Vf[cpol] *= num_unflagged/sum_twts
                 
             if verbose:
                 print 'Gridded aperture illumination and visibilities for polarization {0} from {1:0d} unflagged contributing baselines'.format(cpol, num_unflagged)
 
-    ################################################################################# 
+    ############################################################################
+
+    def quick_beam_synthesis(self, pol=None):
+        
+        """
+        ------------------------------------------------------------------------
+        A quick generator of synthesized beam using interferometer array grid 
+        illumination pattern using the center frequency. Not intended to be used
+        rigorously but rather for comparison purposes and making quick plots
+
+        Inputs:
+
+        pol     [String] The polarization of the synthesized beam. Can be set 
+                to 'P11', 'P12', 'P21' or 'P2'. If set to None, synthesized beam 
+                for all the polarizations are generated. Default=None
+
+        Outputs:
+
+        Dictionary with the following keys and information:
+
+        'syn_beam'  [numpy array] synthesized beam of same size as that of the 
+                    interferometer array grid. It is FFT-shifted to place the 
+                    origin at the center of the array. The peak value of the 
+                    synthesized beam is fixed at unity
+
+        'grid_power_illumination'
+                    [numpy array] complex grid illumination obtained from 
+                    inverse fourier transform of the synthesized beam in 
+                    'syn_beam' and has size same as that of the interferometer 
+                    array grid. It is FFT-shifted to have the origin at the 
+                    center. The sum of this array is set to unity to match the 
+                    peak of the synthesized beam
+
+        'l'         [numpy vector] x-values of the direction cosine grid 
+                    corresponding to x-axis (axis=1) of the synthesized beam
+
+        'm'         [numpy vector] y-values of the direction cosine grid 
+                    corresponding to y-axis (axis=0) of the synthesized beam
+        ------------------------------------------------------------------------
+        """
+
+        if not self.grid_ready:
+            raise ValueError('Need to perform gridding of the antenna array before an equivalent UV grid can be simulated')
+
+        if pol is None:
+            pol = ['P11', 'P12', 'P21', 'P22']
+        elif isinstance(pol, str):
+            if pol in ['P11', 'P12', 'P21', 'P22']:
+                pol = [pol]
+            else:
+                raise ValueError('Invalid polarization specified')
+        elif isinstance(pol, list):
+            p = [cpol for cpol in pol if cpol in ['P11', 'P12', 'P21', 'P22']]
+            if len(p) == 0:
+                raise ValueError('Invalid polarization specified')
+            pol = p
+        else:
+            raise TypeError('Input keyword pol must be string, list or set to None')
+
+        pol = sorted(pol)
+
+        for cpol in pol:
+            if self.grid_illumination[cpol] is None:
+                raise ValueError('Grid illumination for the specified polarization is not determined yet. Must use make_grid_cube()')
+
+        chan = NP.argmin(NP.abs(self.f - self.f0))
+        orig_syn_beam_in_uv = NP.empty(self.gridu.shape+(len(pol),), dtype=NP.complex)
+        for pind, cpol in enumerate(pol):
+            orig_syn_beam_in_uv[:,:,pind] = self.grid_illumination[cpol][:,:,chan]
+
+        # # Pad it with zeros to be twice the size
+        # padded_syn_beam_in_uv = NP.pad(orig_syn_beam_in_uv, ((0,orig_syn_beam_in_uv.shape[0]),(0,orig_syn_beam_in_uv.shape[1]),(0,0)), mode='constant', constant_values=0)
+        # # The NP.roll statements emulate a fftshift but by 1/4 of the size of the padded array
+        # padded_syn_beam_in_uv = NP.roll(padded_syn_beam_in_uv, -orig_syn_beam_in_uv.shape[0]/2, axis=0)
+        # padded_syn_beam_in_uv = NP.roll(padded_syn_beam_in_uv, -orig_syn_beam_in_uv.shape[1]/2, axis=1)
+
+        # Pad it with zeros on either side to be twice the size
+        padded_syn_beam_in_uv = NP.pad(orig_syn_beam_in_uv, ((orig_syn_beam_in_uv.shape[0]/2,orig_syn_beam_in_uv.shape[0]/2),(orig_syn_beam_in_uv.shape[1]/2,orig_syn_beam_in_uv.shape[1]/2),(0,0)), mode='constant', constant_values=0)
+
+        # Shift to be centered
+        padded_syn_beam_in_uv = NP.fft.ifftshift(padded_syn_beam_in_uv)
+
+        # Compute the synthesized beam. It is at a finer resolution due to padding
+        syn_beam = NP.fft.fft2(padded_syn_beam_in_uv, axes=(0,1))
+
+        # Select only the real part, equivalent to adding conjugate baselines
+        syn_beam = 2 * syn_beam.real
+        syn_beam /= syn_beam.max()
+
+        # Inverse Fourier Transform to obtain real and symmetric uv-grid illumination
+        syn_beam_in_uv = NP.fft.ifft2(syn_beam, axes=(0,1))
+
+        # shift the array to be centered
+        syn_beam_in_uv = NP.fft.ifftshift(syn_beam_in_uv, axes=(0,1))
+
+        # Discard pads at either end and select only the central values of original size
+        syn_beam_in_uv = syn_beam_in_uv[orig_syn_beam_in_uv.shape[0]/2:orig_syn_beam_in_uv.shape[0]/2+orig_syn_beam_in_uv.shape[0],orig_syn_beam_in_uv.shape[1]/2:orig_syn_beam_in_uv.shape[1]/2+orig_syn_beam_in_uv.shape[1],:]
+        syn_beam = NP.fft.fftshift(syn_beam[::2,::2,:], axes=(0,1))  # Downsample by factor 2 to get native resolution and shift to be centered
+        
+        du = self.gridu[0,1] - self.gridu[0,0]
+        dv = self.gridv[1,0] - self.gridv[0,0]
+        l = DSP.spectax(self.gridu.shape[1], resolution=du, shift=True)
+        m = DSP.spectax(self.gridv.shape[0], resolution=dv, shift=True)        
+
+        return {'syn_beam': syn_beam, 'grid_power_illumination': syn_beam_in_uv, 'l': l, 'm': m}
+
+    ############################################################################ 
 
     def grid_convolve_old(self, pol=None, antpairs=None, unconvolve_existing=False,
                           normalize=False, method='NN', distNN=NP.inf, tol=None,
                           maxmatch=None): 
 
         """
-        ----------------------------------------------------------------------------
-        Routine to project the visibility illumination pattern and the visibilities
-        on the grid. It can operate on the entire antenna array or
+        ------------------------------------------------------------------------
+        Routine to project the visibility illumination pattern and the 
+        visibilities on the grid. It can operate on the entire antenna array or
         incrementally project the visibilities and illumination patterns from
         specific antenna pairs on to an already existing grid.
 
@@ -5336,9 +4093,9 @@ class InterferometerArray:
         tol        [scalar] If set, only lookup data with abs(val) > tol will be 
                    considered for nearest neighbour lookup. Default = None 
                    implies all lookup values will be considered for nearest 
-                   neighbour determination. tol is to be interpreted as a minimum 
-                   value considered as significant in the lookup table. 
-        ----------------------------------------------------------------------------
+                   neighbour determination. tol is to be interpreted as a 
+                   minimum value considered as significant in the lookup table. 
+        ------------------------------------------------------------------------
         """
 
         eps = 1.0e-10
@@ -5900,39 +4657,38 @@ class InterferometerArray:
                                 self.interferometers[key]._gridinfo_P22[i]['illumination'] = grid_illumination_P22[roi_ind]
                                 self.interferometers[key]._gridinfo_P22[i]['Vf'] = self.interferometers[key].crosspol.Vf_P22[i] * grid_illumination_P22[roi_ind]
 
-    ################################################################################
+    ############################################################################
 
     def grid_unconvolve(self, antpairs, pol=None):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         [Needs to be re-written]
 
         Routine to de-project the visibility illumination pattern and the
-        visibilities on the grid. It can operate on the entire interferometer array 
-        or incrementally de-project the visibilities and illumination patterns of
-        specific antenna pairs from an already existing grid.
+        visibilities on the grid. It can operate on the entire interferometer 
+        array or incrementally de-project the visibilities and illumination 
+        patterns of specific antenna pairs from an already existing grid.
 
         Inputs:
 
         antpairs    [instance of class InterferometerArray, single instance or 
                     list of instances of class Interferometer, or a dictionary 
-                    holding instances of class Interferometer] If a dictionary is 
-                    provided, the keys should be the interferometer labels and 
-                    the values should be instances of class Interferometer. If a 
-                    list is provided, it should be a list of valid instances of 
-                    class Interferometer. These instance(s) of class 
-                    Interferometer will be merged to the existing grid contained 
-                    in the instance of InterferometerArray class. If any of the 
-                    interferoemters are not found to be in the already existing 
-                    set of interferometers, an exception is raised accordingly
-                    and code execution stops.
+                    holding instances of class Interferometer] If a dictionary 
+                    is provided, the keys should be the interferometer labels 
+                    and the values should be instances of class Interferometer. 
+                    If a list is provided, it should be a list of valid 
+                    instances of class Interferometer. These instance(s) of 
+                    class Interferometer will be merged to the existing grid 
+                    contained in the instance of InterferometerArray class. If 
+                    any of the interferoemters are not found to be in the 
+                    already existing set of interferometers, an exception is 
+                    raised accordingly and code execution stops.
 
-        pol         [String] The polarization to be gridded. Can be set to 'P11', 
-                    'P12', 'P21', or 'P22'. If set to None, gridding for all
-                    polarizations is performed. Default = None
-
-        ----------------------------------------------------------------------------
+        pol         [String] The polarization to be gridded. Can be set to 
+                    'P11', 'P12', 'P21', or 'P22'. If set to None, gridding for 
+                    all polarizations is performed. Default=None.
+        ------------------------------------------------------------------------
         """
 
         try:
@@ -6128,48 +4884,60 @@ class InterferometerArray:
             else:
                 raise TypeError('antpairs must be an instance of InterferometerArray, a dictionary of Interferometer instances, a list of Interferometer instances, an Interferometer instance, or a list of antenna labels.')
 
-    ##################################################################################
+    ############################################################################
 
-    def update_flags(self, dictflags=None):
+    def update_flags(self, dictflags=None, stack=True, verify=False):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Updates all flags in the interferometer array followed by any flags that
         need overriding through inputs of specific flag information
 
         Inputs:
 
-        dictflags  [dictionary] contains flag information overriding after default
-                   flag updates are determined. Baseline based flags are given as 
-                   further dictionaries with each under under a key which is the
-                   same as the interferometer label. Flags for each baseline are
-                   specified as a dictionary holding boolean flags for each of the 
-                   four cross-polarizations which are stored under keys 'P11', 
-                   'P12', 'P21', and 'P22'. An absent key just means it is not a
-                   part of the update. Flag information under each baseline must be 
-                   of same type as input parameter flags in member function 
-                   update_flags() of class CrossPolInfo
-        ----------------------------------------------------------------------------
+        dictflags  [dictionary] contains flag information overriding after 
+                   default flag updates are determined. Baseline based flags 
+                   are given as further dictionaries with each under under a 
+                   key which is the same as the interferometer label. Flags for 
+                   each baseline are specified as a dictionary holding boolean 
+                   flags for each of the four cross-polarizations which are 
+                   stored under keys 'P11', 'P12', 'P21', and 'P22'. An absent 
+                   key just means it is not a part of the update. Flag 
+                   information under each baseline must be of same type as 
+                   input parameter flags in member function update_flags() of 
+                   class CrossPolInfo
+
+        stack      [boolean] If True (default), appends the updated flag to the
+                   end of the stack of flags as a function of timestamp. If 
+                   False, updates the last flag in the stack with the updated 
+                   flag and does not append
+
+        verify     [boolean] If True, verify and update the flags, if necessary.
+                   Visibilities are checked for NaN values and if found, the
+                   flag in the corresponding polarization is set to True. 
+                   Default=False. 
+        ------------------------------------------------------------------------
         """
 
         for label in self.interferometers:
-            self.interferometers[label].update_flags()
+            self.interferometers[label].update_flags(stack=stack, verify=verify)
 
-        if dictflags is not None:
+        if dictflags is not None: # Performs flag overriding. Use stack=False
             if not isinstance(dictflags, dict):
                 raise TypeError('Input parameter dictflags must be a dictionary')
             
             for label in dictflags:
                 if label in self.interferometers:
-                    self.interferometers[label].crosspol.update_flags(flags=dictflags[label])
+                    self.interferometers[label].update_flags(flags=dictflags[label], stack=False, verify=True)
 
-    ##################################################################################
+    ############################################################################
 
-    def update(self, antenna_level_updates=None, interferometer_level_updates=None,
-               do_correlate=None, parallel=False, nproc=None, verbose=False):
+    def update(self, interferometer_level_updates=None,
+               antenna_level_updates=None, do_correlate=None, parallel=False,
+               nproc=None, verbose=False):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Updates the interferometer array instance with newer attribute values.
         Can also be used to add and/or remove interferometers with/without
         affecting the existing grid.
@@ -6190,10 +4958,10 @@ class InterferometerArray:
                                               to a scalar. If not given, no 
                                               change is made to the existing
                                               timestamp attribute
-                                'do_grid'     [boolean] If set to True, create or
-                                              recreate a grid. To be specified 
-                                              when the antenna locations are
-                                              updated.
+                                'do_grid'     [boolean] If set to True, create 
+                                              or recreate a grid. To be 
+                                              specified when the antenna 
+                                              locations are updated.
                     'antennas': Holds a list of dictionaries consisting of 
                                 updates for individual antennas. Each element 
                                 in the list contains update for one antenna. 
@@ -6203,8 +4971,8 @@ class InterferometerArray:
                                 exception. The other optional keys and the 
                                 information they hold are listed below:
                                 'action'      [String scalar] Indicates the type 
-                                              of update operation. 'add' adds the 
-                                              Antenna instance to the 
+                                              of update operation. 'add' adds 
+                                              the Antenna instance to the 
                                               AntennaArray instance. 'remove' 
                                               removes the antenna from the
                                               antenna array instance. 'modify'
@@ -6217,35 +4985,39 @@ class InterferometerArray:
                                               grid_unconvolve()) appropriately 
                                               according to the value of the 
                                               'action' key. If set to None or 
-                                              False, gridding effects will remain
-                                              unchanged. Default=None(=False).
-                                'antenna'     [instance of class Antenna] Updated 
-                                              Antenna class instance. Can work 
-                                              for action key 'remove' even if not 
-                                              set (=None) or set to an empty 
-                                              string '' as long as 'label' key is 
-                                              specified. 
-                                'gridpol'     [Optional. String scalar] Initiates 
-                                              the specified action on 
+                                              False, gridding effects will 
+                                              remain unchanged. Default=None
+                                              (=False).
+                                'antenna'     [instance of class Antenna] 
+                                              Updated Antenna class instance. 
+                                              Can work for action key 'remove' 
+                                              even if not set (=None) or set to 
+                                              an empty string '' as long as 
+                                              'label' key is specified. 
+                                'gridpol'     [Optional. String scalar] 
+                                              Initiates the specified action on 
                                               polarization 'P1' or 'P2'. Can be 
                                               set to 'P1' or 'P2'. If not 
                                               provided (=None), then the 
                                               specified action applies to both
                                               polarizations. Default = None.
-                                'Et_P1'       [Optional. Numpy array] Complex 
-                                              Electric field time series in 
-                                              polarization P1. Is used only if 
-                                              set and if 'action' key value is 
-                                              set to 'modify'. Default = None.
-                                'Et_P2'       [Optional. Numpy array] Complex 
-                                              Electric field time series in 
-                                              polarization P2. Is used only if 
-                                              set and if 'action' key value is 
-                                              set to 'modify'. Default = None.
+                                'Et'          [Optional. Dictionary] Complex 
+                                              Electric field time series under
+                                              two polarizations which are under
+                                              keys 'P1' and 'P2'. Is used only 
+                                              if set and if 'action' key value 
+                                              is set to 'modify'. 
+                                              Default = None.
+                                'stack'       [boolean] If True (default), 
+                                              appends the updated flag and data 
+                                              to the end of the stack as a 
+                                              function of timestamp. If False, 
+                                              updates the last flag and data in 
+                                              the stack and does not append
                                 't'           [Optional. Numpy array] Time axis 
                                               of the time series. Is used only 
-                                              if set and if 'action' key value is
-                                              set to 'modify'. Default = None.
+                                              if set and if 'action' key value 
+                                              is set to 'modify'. Default=None.
                                 'timestamp'   [Optional. Scalar] Unique 
                                               identifier of the time series. Is 
                                               used only if set and if 'action' 
@@ -6257,66 +5029,43 @@ class InterferometerArray:
                                               coordinate system. Used only if 
                                               set and if 'action' key value is 
                                               set to 'modify'. Default = None.
-                                'wtsinfo_P1'  [Optional. List of dictionaries] 
+                                'wtsinfo'     [Optional. Dictionary] 
                                               See description in Antenna class 
                                               member function update(). Is used 
                                               only if set and if 'action' key 
                                               value is set to 'modify'.
                                               Default = None.
-                                'wtsinfo_P2'  [Optional. List of dictionaries] 
-                                              See description in Antenna class 
-                                              member function update(). Is used 
-                                              only if set and if 'action' key 
-                                              value is set to 'modify'.
-                                              Default = None.
-                                'flag_P1'     [Optional. Boolean] Flagging status 
-                                              update for polarization P1 of the 
-                                              antenna. If True, polarization P1 
-                                              measurements of the antenna will be
-                                              flagged. If not set (=None), the 
-                                              previous or default flag status 
-                                              will continue to apply. If set to 
-                                              False, the antenna status will be
-                                              updated to become unflagged.
-                                              Default = None.
-                                'flag_P2'     [Optional. Boolean] Flagging status 
-                                              update for polarization P2 of the 
-                                              antenna. If True, polarization P2 
-                                              measurements of the antenna will be
-                                              flagged. If not set (=None), the 
-                                              previous or default flag status 
-                                              will continue to apply. If set to 
-                                              False, the antenna status will be
-                                              updated to become unflagged.
-                                              Default = None.
+                                'flags'       [Optional. Dictionary] holds 
+                                              boolean flags for each of the 2 
+                                              polarizations which are stored 
+                                              under keys 'P1' and 'P2'. 
+                                              Default=None means no updates for 
+                                              flags. If True, that polarization 
+                                              will be flagged. If not set 
+                                              (=None), the previous or default 
+                                              flag status will continue to 
+                                              apply. If set to False, the 
+                                              antenna status will be updated to 
+                                              become unflagged.
                                 'gridfunc_freq'
                                               [Optional. String scalar] Read the 
                                               description of inputs to Antenna 
                                               class member function update(). If 
                                               set to None (not provided), this
                                               attribute is determined based on 
-                                              the size of wtspos_P1 and wtspos_P2. 
-                                              It is applicable only when 'action' 
-                                              key is set to 'modify'. 
-                                              Default = None.
-                                'delaydict_P1'
-                                              Dictionary containing information 
-                                              on delay compensation to be applied 
-                                              to the fourier transformed electric 
-                                              fields for polarization P1. Default
+                                              the size of wtspos_P1 and 
+                                              wtspos_P2. It is applicable only 
+                                              when 'action' key is set to 
+                                              'modify'. Default = None.
+                                'delaydict'   [Dictionary] contains information 
+                                              on delay compensation to be 
+                                              applied to the fourier transformed 
+                                              electric fields under each 
+                                              polarization which are stored 
+                                              under keys 'P1' and 'P2'. Default 
                                               is None (no delay compensation to 
-                                              be applied). Refer to the docstring 
-                                              of member function
-                                              delay_compensation() of class 
-                                              PolInfo for more details.
-                                'delaydict_P2'
-                                              Dictionary containing information 
-                                              on delay compensation to be applied 
-                                              to the fourier transformed electric 
-                                              fields for polarization P2. Default
-                                              is None (no delay compensation to 
-                                              be applied). Refer to the docstring 
-                                              of member function
+                                              be applied). Refer to the 
+                                              docstring of member function 
                                               delay_compensation() of class 
                                               PolInfo for more details.
                                 'ref_freq'    [Optional. Scalar] Positive value 
@@ -6336,19 +5085,20 @@ class InterferometerArray:
                                               value remains in effect.
                                               Default = None.
                                 'norm_wts'    [Optional. Boolean] Default=False. 
-                                              If set to True, the gridded weights 
-                                              are divided by the sum of weights 
-                                              so that the gridded weights add up 
-                                              to unity. This is used only when
-                                              grid_action keyword is set when
-                                              action keyword is set to 'add' or
-                                              'modify'
+                                              If set to True, the gridded 
+                                              weights are divided by the sum of 
+                                              weights so that the gridded 
+                                              weights add up to unity. This is 
+                                              used only when grid_action keyword 
+                                              is set when action keyword is set 
+                                              to 'add' or 'modify'
                                 'gridmethod'  [Optional. String] Indicates 
                                               gridding method. It accepts the 
                                               following values 'NN' (nearest 
                                               neighbour), 'BL' (Bi-linear
                                               interpolation), and'CS' (Cubic
-                                              Spline interpolation). Default='NN'
+                                              Spline interpolation). 
+                                              Default='NN'
                                 'distNN'      [Optional. Scalar] Indicates the 
                                               upper bound on distance for a 
                                               nearest neighbour search if the 
@@ -6381,51 +5131,53 @@ class InterferometerArray:
 
         interferometer_level_updates
                     [Dictionary] Consists of information updates for individual
-                    interferoemters and interferometer array as a whole under the
-                    following principal keys:
+                    interferoemters and interferometer array as a whole under 
+                    the following principal keys:
                     'interferometer_array': Consists of updates for the
                                 InterferometerArray instance. This is a
                                 dictionary which consists of the following keys:
                                 'timestamp': Unique identifier of the time
                                        series. It is optional to set this to a
-                                       scalar. If not given, no change is made to 
-                                       the existing timestamp attribute
-                    'interferometers': Holds a list of dictionaries where element
-                                consists of updates for individual 
+                                       scalar. If not given, no change is made 
+                                       to the existing timestamp attribute
+                    'interferometers': Holds a list of dictionaries where 
+                                element consists of updates for individual 
                                 interferometers. Each dictionary must contain a 
                                 key 'label' which indicates an interferometer 
                                 label. If absent, the code execution stops by 
                                 throwing an exception. The other optional keys 
                                 and the information they hold are listed below:
                                 'action'      [String scalar] Indicates the type 
-                                              of update operation. 'add' adds the 
-                                              Interferometer instance to the 
+                                              of update operation. 'add' adds 
+                                              the Interferometer instance to the 
                                               InterferometerArray instance. 
-                                              'remove' removes the interferometer 
-                                              from the interferometer array
-                                              instance. 'modify' modifies the
+                                              'remove' removes the 
+                                              interferometer from the 
+                                              interferometer array instance. 
+                                              'modify' modifies the 
                                               interferometer attributes in the 
-                                              interferometer array instance. This 
-                                              key has to be set. No default.
+                                              interferometer array instance. 
+                                              This key has to be set. No default
                                 'grid_action' [Boolean] If set to True, will 
                                               apply the grdding operations 
                                               (grid(), grid_convolve(), and 
                                               grid_unconvolve()) appropriately 
                                               according to the value of the 
                                               'action' key. If set to None or 
-                                              False, gridding effects will remain
-                                              unchanged. Default=None(=False).
+                                              False, gridding effects will 
+                                              remain unchanged. Default=None
+                                              (=False).
                                 'interferometer' 
                                               [instance of class Interferometer] 
                                               Updated Interferometer class 
                                               instance. Can work for action key
-                                              'remove' even if not set (=None) or
-                                              set to an empty string '' as long as 
-                                              'label' key is specified. 
-                                'gridpol'     [Optional. String scalar] Initiates 
-                                              the specified action on 
-                                              polarization 'P11' or 'P22'. Can be 
-                                              set to 'P11' or 'P22'. If not 
+                                              'remove' even if not set (=None) 
+                                              or set to an empty string '' as 
+                                              long as 'label' key is specified. 
+                                'gridpol'     [Optional. String scalar] 
+                                              Initiates the specified action on 
+                                              polarization 'P11' or 'P22'. Can 
+                                              be set to 'P11' or 'P22'. If not 
                                               provided (=None), then the 
                                               specified action applies to both
                                               polarizations. Default = None.
@@ -6438,13 +5190,19 @@ class InterferometerArray:
                                               set to 'modify'. Default = None.
                                 't'           [Optional. Numpy array] Time axis 
                                               of the time series. Is used only 
-                                              if set and if 'action' key value is
-                                              set to 'modify'. Default = None.
+                                              if set and if 'action' key value 
+                                              is set to 'modify'. Default=None.
                                 'timestamp'   [Optional. Scalar] Unique 
                                               identifier of the time series. Is 
                                               used only if set and if 'action' 
                                               key value is set to 'modify'.
                                               Default = None.
+                                'stack'       [boolean] If True (default), 
+                                              appends the updated flag and data 
+                                              to the end of the stack as a 
+                                              function of timestamp. If False, 
+                                              updates the last flag and data in 
+                                              the stack and does not append
                                 'location'    [Optional. instance of GEOM.Point
                                               class] Interferometer location in 
                                               the local ENU coordinate system. 
@@ -6464,11 +5222,11 @@ class InterferometerArray:
                                               'P21' and 'P2'. Default=None means 
                                               no updates for flags. If True, 
                                               that polarization will be flagged. 
-                                              If not set (=None), the previous or 
-                                              default flag status will continue 
-                                              to apply. If set to False, the 
-                                              antenna status will be updated to 
-                                              become unflagged.
+                                              If not set (=None), the previous 
+                                              or default flag status will 
+                                              continue to apply. If set to 
+                                              False, the antenna status will be 
+                                              updated to become unflagged.
                                 'gridfunc_freq'
                                               [Optional. String scalar] Read the 
                                               description of inputs to 
@@ -6477,8 +5235,8 @@ class InterferometerArray:
                                               (not provided), this attribute is 
                                               determined based on the size of 
                                               wtspos under each polarization. 
-                                              It is applicable only when 'action' 
-                                              key is set to 'modify'. 
+                                              It is applicable only when 
+                                              'action' key is set to 'modify'. 
                                               Default = None.
                                 'ref_freq'    [Optional. Scalar] Positive value 
                                               (in Hz) of reference frequency 
@@ -6496,19 +5254,20 @@ class InterferometerArray:
                                               value remains in effect.
                                               Default = None.
                                 'norm_wts'    [Optional. Boolean] Default=False. 
-                                              If set to True, the gridded weights 
-                                              are divided by the sum of weights 
-                                              so that the gridded weights add up 
-                                              to unity. This is used only when
-                                              grid_action keyword is set when
-                                              action keyword is set to 'add' or
-                                              'modify'
+                                              If set to True, the gridded 
+                                              weights are divided by the sum of 
+                                              weights so that the gridded 
+                                              weights add up to unity. This is 
+                                              used only when grid_action keyword 
+                                              is set when action keyword is set 
+                                              to 'add' or 'modify'
                                 'gridmethod'  [Optional. String] Indicates 
                                               gridding method. It accepts the 
                                               following values 'NN' (nearest 
                                               neighbour), 'BL' (Bi-linear
                                               interpolation), and'CS' (Cubic
-                                              Spline interpolation). Default='NN'
+                                              Spline interpolation). 
+                                              Default='NN'
                                 'distNN'      [Optional. Scalar] Indicates the 
                                               upper bound on distance for a 
                                               nearest neighbour search if the 
@@ -6527,7 +5286,7 @@ class InterferometerArray:
                                               each interferometer. For instance, 
                                               to have only one interferometer 
                                               array grid element to be populated 
-                                              per interferometer, use maxmatch=1. 
+                                              per interferometer, use maxmatch=1 
                                 'tol'         [scalar] If set, only lookup data 
                                               with abs(val) > tol will be
                                               considered for nearest neighbour 
@@ -6545,20 +5304,42 @@ class InterferometerArray:
                     operation) and 'XF' (for XF operation). Default=None means
                     no correlating operation is to be performed after updates.
 
+        parallel    [boolean] specifies if parallelization is to be invoked. 
+                    False (default) means only serial processing
+
+        nproc       [integer] specifies number of independent processes to 
+                    spawn. Default = None, means automatically determines the 
+                    number of process cores in the system and use one less than 
+                    that to avoid locking the system for other processes. 
+                    Applies only if input parameter 'parallel' (see above) is 
+                    set to True. If nproc is set to a value more than the number 
+                    of process cores in the system, it will be reset to number 
+                    of process cores in the system minus one to avoid locking 
+                    the system out for other processes
+
         verbose     [Boolean] Default = False. If set to True, prints some 
                     diagnotic or progress messages.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
+
+        if antenna_level_updates is not None:
+            if verbose:
+                print 'Updating antenna array...'
+            self.antenna_array.update(updates=antenna_level_updates)
+            if verbose:
+                print 'Updated antenna array. Refreshing interferometer flags from antenna flags...'
+            self.update_flags(dictflags=None, stack=False, verify=False)  # Update interferometer flags using antenna level flags
+            if verbose:
+                print 'Refreshed interferometer flags. Refreshing antenna pairs...'
+            self.refresh_antenna_pairs()
+            if verbose:
+                print 'Refreshed antenna pairs...'
 
         if verbose:
             print 'Updating interferometer array ...'
 
-        if antenna_level_updates is not None:
-            self.antenna_array.update(updates=antenna_level_updates)
-
         self.timestamp = self.antenna_array.timestamp
         self.t = self.antenna_array.t
-        self.update_flags()  # Update interferometer flags using antenna level flags
 
         if interferometer_level_updates is not None:
             if not isinstance(interferometer_level_updates, dict):
@@ -6570,6 +5351,10 @@ class InterferometerArray:
                 if parallel:
                     list_of_interferometer_updates = []
                     list_of_interferometers = []
+
+                if verbose:
+                    progress = PGB.ProgressBar(widgets=[PGB.Percentage(), PGB.Bar(marker='-', left=' |', right='| '), PGB.Counter(), '/{0:0d} Interferometers '.format(len(interferometer_level_updates['interferometers'])), PGB.ETA()], maxval=len(interferometer_level_updates['interferometers'])).start()
+                loopcount = 0
                 for dictitem in interferometer_level_updates['interferometers']:
                     if not isinstance(dictitem, dict):
                         raise TypeError('Interferometer_Level_Updates to {0} instance should be provided in the form of a list of dictionaries.'.format(self.__class__.__name__))
@@ -6611,6 +5396,7 @@ class InterferometerArray:
                             if 'location' not in dictitem: dictitem['location']=None
                             if 'wtsinfo' not in dictitem: dictitem['wtsinfo']=None
                             if 'flags' not in dictitem: dictitem['flags']=None
+                            if 'stack' not in dictitem: dictitem['stack']=False
                             if 'gridfunc_freq' not in dictitem: dictitem['gridfunc_freq']=None
                             if 'ref_freq' not in dictitem: dictitem['ref_freq']=None
                             if 'pol_type' not in dictitem: dictitem['pol_type']=None
@@ -6622,7 +5408,8 @@ class InterferometerArray:
                             if 'do_correlate' not in dictitem: dictitem['do_correlate']=None
 
                             if not parallel:
-                                self.interferometers[dictitem['label']].update(dictitem['label'], dictitem['Vt'], dictitem['t'], dictitem['timestamp'], dictitem['location'], dictitem['wtsinfo'], dictitem['flags'], dictitem['gridfunc_freq'], dictitem['ref_freq'], dictitem['do_correlate'], verbose)
+                                # self.interferometers[dictitem['label']].update_old(dictitem['label'], dictitem['Vt'], dictitem['t'], dictitem['timestamp'], dictitem['location'], dictitem['wtsinfo'], dictitem['flags'], dictitem['gridfunc_freq'], dictitem['ref_freq'], dictitem['do_correlate'], verbose)
+                                self.interferometers[dictitem['label']].update(dictitem, verbose)                                
                             else:
                                 list_of_interferometers += [self.interferometers[dictitem['label']]]
                                 list_of_interferometer_updates += [dictitem]
@@ -6632,6 +5419,12 @@ class InterferometerArray:
                     else:
                         raise ValueError('Update action should be set to "add", "remove" or "modify".')
 
+                    if verbose:
+                        progress.update(loopcount+1)
+                        loopcount += 1
+                if verbose:
+                    progress.finish()
+                    
                 if parallel:
                     if nproc is None:
                         nproc = max(MP.cpu_count()-1, 1) 
@@ -6647,39 +5440,35 @@ class InterferometerArray:
                         self.interferometers[interferometer.label] = interferometer
                     del updated_interferometers
 
-        if do_correlate is not None:
-            if do_correlate == 'FX':
-                self.FX(parallel=parallel, nproc=nproc)
-            elif do_correlate == 'XF':
-                self.XF(parallel=parallel, nproc=nproc)
-            else:
-                raise ValueError('Invalid specification for input parameter do_correlate.')
-
-#################################################################################
+################################################################################
         
 class Image:
 
     """
-    -----------------------------------------------------------------------------
+    ----------------------------------------------------------------------------
     Class to manage image information and processing pertaining to the class 
     holding antenna array information.
 
     Attributes:
 
-    timestamp:  [Scalar] String or float representing the timestamp for the 
-                current attributes
+    timestamp:   [Scalar] String or float representing the timestamp for the 
+                 current attributes
+                 
+    f:           [vector] Frequency channels (in Hz)
+                 
+    f0:          [Scalar] Positive value for the center frequency in Hz.
 
-    f:          [vector] Frequency channels (in Hz)
+    gridx_P1     [Numpy array] x-locations of the grid lattice for P1 
+                 polarization
 
-    f0:         [Scalar] Positive value for the center frequency in Hz.
+    gridy_P1     [Numpy array] y-locations of the grid lattice for P1 
+                 polarization
 
-    gridx_P1     [Numpy array] x-locations of the grid lattice for P1 polarization
+    gridx_P2     [Numpy array] x-locations of the grid lattice for P2 
+                 polarization
 
-    gridy_P1     [Numpy array] y-locations of the grid lattice for P1 polarization
-
-    gridx_P2     [Numpy array] x-locations of the grid lattice for P2 polarization
-
-    gridy_P2     [Numpy array] y-locations of the grid lattice for P2 polarization
+    gridy_P2     [Numpy array] y-locations of the grid lattice for P2 
+                 polarization
 
     grid_illuminaton_P1
                  [Numpy array] Electric field illumination for P1 polarization 
@@ -6701,8 +5490,8 @@ class Image:
                  grid_illumination_P1. It is 3-dimensional (third dimension is 
                  the frequency axis)
 
-    holograph_P1 [Numpy array] Complex holographic image cube for polarization P1
-                 obtained by inverse fourier transforming Ef_P1
+    holograph_P1 [Numpy array] Complex holographic image cube for polarization 
+                 P1 obtained by inverse fourier transforming Ef_P1
 
     PB_P1        [Numpy array] Power pattern of the antenna obtained by squaring
                  the absolute value of holograph_PB_P1. It is 3-dimensional 
@@ -6725,8 +5514,8 @@ class Image:
                  grid_illumination_P2. It is 3-dimensional (third dimension is 
                  the frequency axis)
 
-    holograph_P2 [Numpy array] Complex holographic image cube for polarization P2
-                 obtained by inverse fourier transforming Ef_P2
+    holograph_P2 [Numpy array] Complex holographic image cube for polarization 
+                 P2 obtained by inverse fourier transforming Ef_P2
 
     PB_P2        [Numpy array] Power pattern of the antenna obtained by squaring
                  the absolute value of holograph_PB_P2. It is 3-dimensional 
@@ -6745,11 +5534,11 @@ class Image:
 
     Member Functions:
 
-    __init__()   Initializes an instance of class Image which manages information
-                 and processing of images from data obtained by an antenna array.
-                 It can be initialized either by values in an instance of class 
-                 AntennaArray, by values in a fits file containing information
-                 about the antenna array, or to defaults.
+    __init__()   Initializes an instance of class Image which manages 
+                 information and processing of images from data obtained by an 
+                 antenna array. It can be initialized either by values in an 
+                 instance of class AntennaArray, by values in a fits file 
+                 containing information about the antenna array, or to defaults.
 
     imagr()      Imaging engine that performs inverse fourier transforms of 
                  appropriate electric field quantities associated with the 
@@ -6758,14 +5547,14 @@ class Image:
     save()       Saves the image information to disk
 
     Read the member function docstrings for more details
-    -----------------------------------------------------------------------------
+    ----------------------------------------------------------------------------
     """
 
     def __init__(self, f0=None, f=None, pol=None, antenna_array=None,
                  infile=None, timestamp=None, verbose=True):
         
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Initializes an instance of class Image which manages information and
         processing of images from data obtained by an antenna array. It can be
         initialized either by values in an instance of class AntennaArray, by
@@ -6779,7 +5568,7 @@ class Image:
         holograph_PB_P1, img_P1, PB_P1, lf_P1, and mf_P1
 
         Read docstring of class Image for details on these attributes.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         if verbose:
@@ -6975,12 +5764,12 @@ class Image:
         if verbose:
             print '\nSuccessfully initialized an instance of class Image\n'
 
-    #############################################################################
+    ############################################################################
 
     def imagr(self, pol=None, verbose=True):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Imaging engine that performs inverse fourier transforms of appropriate
         electric field quantities associated with the antenna array.
 
@@ -6992,7 +5781,7 @@ class Image:
 
         verbose   [boolean] If True (default), prints diagnostic and progress
                   messages. If False, suppress printing such messages.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         if verbose:
@@ -7068,12 +5857,12 @@ class Image:
                 print '\t\tImage pixels corresponding to invalid direction cosine coordinates (if any) \n\t\t\thave been flagged as NAN.'
                 print '\nImaging completed successfully.\n'
 
-    #############################################################################
+    ############################################################################
         
     def save(self, imgfile, pol=None, overwrite=False, verbose=True):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Saves the image information to disk.
 
         Input:
@@ -7092,7 +5881,7 @@ class Image:
                      
         verbose      [boolean] If True (default), prints diagnostic and progress
                      messages. If False, suppress printing such messages.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         try:
@@ -7175,12 +5964,12 @@ class Image:
         if verbose:
             print '\tImage information written successfully to FITS file on disk:\n\t\t{0}\n'.format(filename)
 
-#################################################################################
+################################################################################
 
 class NewImage:
 
     """
-    -----------------------------------------------------------------------------
+    ----------------------------------------------------------------------------
     Class to manage image information and processing pertaining to the class 
     holding antenna array or interferometer array information.
 
@@ -7188,20 +5977,24 @@ class NewImage:
 
     Attributes:
 
-    timestamp:  [Scalar] String or float representing the timestamp for the 
-                current attributes
+    timestamp:   [Scalar] String or float representing the timestamp for the 
+                 current attributes
+                 
+    f:           [vector] Frequency channels (in Hz)
+                 
+    f0:          [Scalar] Positive value for the center frequency in Hz.
 
-    f:          [vector] Frequency channels (in Hz)
+    gridx_P1     [Numpy array] x-locations of the grid lattice for P1 
+                 polarization
 
-    f0:         [Scalar] Positive value for the center frequency in Hz.
+    gridy_P1     [Numpy array] y-locations of the grid lattice for P1 
+                 polarization
 
-    gridx_P1     [Numpy array] x-locations of the grid lattice for P1 polarization
+    gridx_P2     [Numpy array] x-locations of the grid lattice for P2 
+                 polarization
 
-    gridy_P1     [Numpy array] y-locations of the grid lattice for P1 polarization
-
-    gridx_P2     [Numpy array] x-locations of the grid lattice for P2 polarization
-
-    gridy_P2     [Numpy array] y-locations of the grid lattice for P2 polarization
+    gridy_P2     [Numpy array] y-locations of the grid lattice for P2 
+                 polarization
 
     grid_illuminaton_P1
                  [Numpy array] Electric field illumination for P1 polarization 
@@ -7223,8 +6016,8 @@ class NewImage:
                  grid_illumination_P1. It is 3-dimensional (third dimension is 
                  the frequency axis)
 
-    holograph_P1 [Numpy array] Complex holographic image cube for polarization P1
-                 obtained by inverse fourier transforming Ef_P1
+    holograph_P1 [Numpy array] Complex holographic image cube for polarization 
+                 P1 obtained by inverse fourier transforming Ef_P1
 
     PB_P1        [Numpy array] Power pattern of the antenna obtained by squaring
                  the absolute value of holograph_PB_P1. It is 3-dimensional 
@@ -7247,8 +6040,8 @@ class NewImage:
                  grid_illumination_P2. It is 3-dimensional (third dimension is 
                  the frequency axis)
 
-    holograph_P2 [Numpy array] Complex holographic image cube for polarization P2
-                 obtained by inverse fourier transforming Ef_P2
+    holograph_P2 [Numpy array] Complex holographic image cube for polarization 
+                 P2 obtained by inverse fourier transforming Ef_P2
 
     PB_P2        [Numpy array] Power pattern of the antenna obtained by squaring
                  the absolute value of holograph_PB_P2. It is 3-dimensional 
@@ -7267,11 +6060,11 @@ class NewImage:
 
     Member Functions:
 
-    __init__()   Initializes an instance of class Image which manages information
-                 and processing of images from data obtained by an antenna array.
-                 It can be initialized either by values in an instance of class 
-                 AntennaArray, by values in a fits file containing information
-                 about the antenna array, or to defaults.
+    __init__()   Initializes an instance of class Image which manages 
+                 information and processing of images from data obtained by an 
+                 antenna array. It can be initialized either by values in an 
+                 instance of class AntennaArray, by values in a fits file 
+                 containing information about the antenna array, or to defaults.
 
     imagr()      Imaging engine that performs inverse fourier transforms of 
                  appropriate electric field quantities associated with the 
@@ -7280,7 +6073,7 @@ class NewImage:
     save()       Saves the image information to disk
 
     Read the member function docstrings for more details
-    -----------------------------------------------------------------------------
+    ----------------------------------------------------------------------------
     """
 
     def __init__(self, f0=None, f=None, pol=None, antenna_array=None,
@@ -7288,7 +6081,7 @@ class NewImage:
                  verbose=True):
         
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Initializes an instance of class Image which manages information and
         processing of images from data obtained by an antenna array or 
         interferometer array. It can be initialized either by values in an
@@ -7303,7 +6096,7 @@ class NewImage:
         holograph_PB_P1, img_P1, PB_P1, lf_P1, and mf_P1
 
         Read docstring of class Image for details on these attributes.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         if verbose:
@@ -7469,6 +6262,8 @@ class NewImage:
             
                 self.grid_illumination = {}
                 self.grid_Ef = {}
+                self.holimg = {}
+                self.holbeam = {}
                 self.img = {}
                 self.beam = {}
                 self.gridl = {}
@@ -7487,6 +6282,8 @@ class NewImage:
                         if verbose:
                             print '\n\t\tWorking on polarization {0}'.format(apol)
                                 
+                        self.holimg[apol] = None
+                        self.holbeam[apol] = None
                         self.img[apol] = None
                         self.beam[apol] = None
                         self.grid_wts[apol] = NP.zeros(self.gridu.shape+(self.f.size,))
@@ -7524,6 +6321,8 @@ class NewImage:
             
                 self.grid_illumination = {}
                 self.grid_Vf = {}
+                self.holimg = {}
+                self.holbeam = {}
                 self.img = {}
                 self.beam = {}
                 self.gridl = {}
@@ -7542,6 +6341,8 @@ class NewImage:
                         if verbose:
                             print '\n\t\tWorking on polarization {0}'.format(cpol)
                                 
+                        self.holimg[cpol] = None
+                        self.holbeam[cpol] = None
                         self.img[cpol] = None
                         self.beam[cpol] = None
                         self.grid_wts[cpol] = NP.zeros(self.gridu.shape+(self.f.size,))
@@ -7564,12 +6365,12 @@ class NewImage:
         if verbose:
             print '\nSuccessfully initialized an instance of class Image\n'
 
-    #############################################################################
+    ############################################################################
 
-    def imagr(self, pol=None, weighting='natural', verbose=True):
+    def imagr(self, pol=None, weighting='natural', pad='on', verbose=True):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Imaging engine that performs inverse fourier transforms of appropriate
         electric fields or visibilities associated with the antenna array or
         interferometer array respectively.
@@ -7583,9 +6384,18 @@ class NewImage:
         weighting [string] indicates weighting scheme. Default='natural'. 
                   Accepted values are 'natural' and 'uniform'
 
+        pad       [string] indicates if the uv-plane grid is to be padded 
+                  (defualt='on') or not ('off') before imaging. If pad is set
+                  to 'on', in case of MOFF imagging from electric fields, the
+                  padded uv-grid is 4 times larger in x- and y-directions than
+                  the antenna array grid. In case of FX imaging the padding
+                  extends on each side in each direction by 50%. Thus the size
+                  of the padded grid is twice that of the interferometer array 
+                  grid and would be the 4 times that of an antenna array grid.
+
         verbose   [boolean] If True (default), prints diagnostic and progress
                   messages. If False, suppress printing such messages.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         if verbose:
@@ -7596,6 +6406,12 @@ class NewImage:
 
         if self.measured_type is None:
             raise ValueError('Measured type is unknown.')
+
+        if not isinstance(pad, str):
+            raise TypeError('Input keyword pad must be a string')
+        else:
+            if pad not in ['on', 'off']:
+                raise ValueError('Invalid value specified for pad')
 
         if self.measured_type == 'E-field':
             if pol is None: pol = ['P1', 'P2']
@@ -7611,9 +6427,27 @@ class NewImage:
 
                     sum_wts = NP.sum(NP.abs(self.grid_wts[apol] * self.grid_illumination[apol]), axis=(0,1), keepdims=True)
 
-                    self.beam[apol] = NP.fft.fftshift(NP.fft.fft2(self.grid_wts[apol]*self.grid_illumination[apol],axes=(0,1)).real, axes=(0,1)) / sum_wts
-                    self.img[apol] = NP.fft.fftshift(NP.fft.fft2(self.grid_wts[apol]*self.grid_Ef[apol],axes=(0,1)).real, axes=(0,1)) / sum_wts
+                    if pad == 'on':
+                        syn_beam = NP.fft.fft2(self.grid_wts[apol]*self.grid_illumination[apol], s=[4*self.gridu.shape[0], 4*self.gridv.shape[1]], axes=(0,1))
+                        dirty_image = NP.fft.fft2(self.grid_wts[apol]*self.grid_Ef[apol], s=[4*self.gridu.shape[0], 4*self.gridv.shape[1]], axes=(0,1))
+                    else:
+                        syn_beam = NP.fft.fft2(self.grid_wts[apol]*self.grid_illumination[apol], axes=(0,1))
+                        dirty_image = NP.fft.fft2(self.grid_wts[apol]*self.grid_Ef[apol], axes=(0,1))
 
+                    self.holbeam[apol] = NP.fft.fftshift(syn_beam, axes=(0,1)) / sum_wts
+                    self.holimg[apol] = NP.fft.fftshift(dirty_image, axes=(0,1)) / sum_wts
+                    syn_beam = NP.abs(syn_beam) ** 2
+                    meanval = NP.sum(syn_beam, axis=(0,1), keepdims=True) / (syn_beam.shape[0]*syn_beam.shape[1])
+                    # meanval = NP.nanmean(syn_beam.reshape(-1,dirty_image.shape[2]), axis=0).reshape(1,1,-1)
+                    sum_wts2 = sum_wts**2 - meanval
+                    syn_beam -= meanval
+                    dirty_image = NP.abs(dirty_image) ** 2
+                    meanval = NP.sum(dirty_image, axis=(0,1), keepdims=True) / (dirty_image.shape[0]*dirty_image.shape[1])
+                    # meanval = NP.nanmean(dirty_image.reshape(-1,syn_beam.shape[2]), axis=0).reshape(1,1,-1)
+                    dirty_image -= meanval
+                    self.beam[apol] = NP.fft.fftshift(syn_beam, axes=(0,1)) / sum_wts2
+                    self.img[apol] = NP.fft.fftshift(dirty_image, axes=(0,1)) / sum_wts2
+                       
         if self.measured_type == 'visibility':
             if pol is None: pol = ['P11', 'P12', 'P21', 'P22']
             pol = NP.unique(NP.asarray(pol))
@@ -7628,9 +6462,28 @@ class NewImage:
 
                     sum_wts = NP.sum(NP.abs(self.grid_wts[cpol] * self.grid_illumination[cpol]), axis=(0,1), keepdims=True)
 
-                    self.beam[cpol] = NP.fft.fftshift(NP.fft.fft2(self.grid_wts[cpol]*self.grid_illumination[cpol],axes=(0,1)).real, axes=(0,1)) / sum_wts
-                    self.img[cpol] = NP.fft.fftshift(NP.fft.fft2(self.grid_wts[cpol]*self.grid_Vf[cpol],axes=(0,1)).real, axes=(0,1)) / sum_wts
-                    
+                    if pad == 'on': # Pad it with zeros on either side to be twice the size
+                        padded_syn_beam_in_uv = NP.pad(self.grid_wts[cpol]*self.grid_illumination[cpol], ((self.gridu.shape[0]/2,self.gridu.shape[0]/2),(self.gridv.shape[1]/2,self.gridv.shape[1]/2),(0,0)), mode='constant', constant_values=0)
+                        padded_grid_Vf = NP.pad(self.grid_wts[cpol]*self.grid_Vf[cpol], ((self.gridu.shape[0]/2,self.gridu.shape[0]/2),(self.gridv.shape[1]/2,self.gridv.shape[1]/2),(0,0)), mode='constant', constant_values=0)
+                    else:  # No padding
+                        padded_syn_beam_in_uv = self.grid_wts[cpol]*self.grid_illumination[cpol]
+                        padded_grid_Vf = self.grid_wts[cpol]*self.grid_Vf[cpol]
+
+                    # Shift to be centered
+                    padded_syn_beam_in_uv = NP.fft.ifftshift(padded_syn_beam_in_uv, axes=(0,1))
+                    padded_grid_Vf = NP.fft.ifftshift(padded_grid_Vf, axes=(0,1))
+
+                    # Compute the synthesized beam. It is at a finer resolution due to padding
+                    syn_beam = NP.fft.fft2(padded_syn_beam_in_uv, axes=(0,1))
+                    dirty_image = NP.fft.fft2(padded_grid_Vf, axes=(0,1))
+        
+                    # Select only the real part, equivalent to adding conjugate baselines
+                    dirty_image = dirty_image.real
+                    syn_beam = syn_beam.real
+
+                    self.beam[cpol] = NP.fft.fftshift(syn_beam, axes=(0,1)) / sum_wts
+                    self.img[cpol] = NP.fft.fftshift(dirty_image, axes=(0,1)) / sum_wts
+
         du = self.gridu[0,1] - self.gridu[0,0]
         dv = self.gridv[1,0] - self.gridv[0,0]
         self.gridl, self.gridm = NP.meshgrid(NP.fft.fftshift(NP.fft.fftfreq(grid_shape[1], du)), NP.fft.fftshift(NP.fft.fftfreq(grid_shape[0], dv)))
@@ -7642,12 +6495,12 @@ class NewImage:
         if verbose:
             print 'Successfully imaged.'
 
-    #############################################################################
+    ############################################################################
         
     def save(self, imgfile, pol=None, overwrite=False, verbose=True):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Saves the image information to disk.
 
         Input:
@@ -7666,7 +6519,7 @@ class NewImage:
                      
         verbose      [boolean] If True (default), prints diagnostic and progress
                      messages. If False, suppress printing such messages.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         try:
@@ -7749,7 +6602,7 @@ class NewImage:
         if verbose:
             print '\tImage information written successfully to FITS file on disk:\n\t\t{0}\n'.format(filename)
 
-#################################################################################
+################################################################################
 
 class PolInfo:
 
@@ -7759,8 +6612,8 @@ class PolInfo:
 
     Attributes:
 
-    Et       [dictionary] holds measured complex time series under 2 
-             polarizations which are stored under keys 'P1', and 'P2'
+    Et       [dictionary] holds measured complex electric field time series 
+             under 2 polarizations which are stored under keys 'P1', and 'P2'
 
     Ef       [dictionary] holds complex electric field spectra under 2 
              polarizations which are stored under keys 'P1', and 'P2'. The 
@@ -7777,12 +6630,20 @@ class PolInfo:
     __str__():     Prints a summary of current attributes.
 
     FT():          Perform a Fourier transform of an Electric field time series
+                   after doubling the length of the sequence with zero padding 
+                   (in order to be identical to what would be obtained from a 
+                   XF operation)
 
-    update():      Routine to update the Electric field and flag information.
+    update_flags() Updates the flags based on current inputs and verifies and 
+                   updates flags based on current values of the electric field.
+
+    update():      Updates the electric field time series and spectra, and 
+                   flags for different polarizations
     
     delay_compensation():
-                   Routine to apply delay compensation to Electric field spectra 
-                   through additional phase.
+                   Routine to apply delay compensation to Electric field 
+                   spectra through additional phase. This assumes that the 
+                   spectra have already been made
 
     Read the member function docstrings for details. 
     ----------------------------------------------------------------------------
@@ -7822,7 +6683,7 @@ class PolInfo:
     ############################################################################ 
 
     def __str__(self):
-        return ' Instance of class "{0}" in module "{1}" \n flag (P1): {2} \n flag (P2): {3} '.format(self.__class__.__name__, self.__module__, self.flag_P1, self.flag_P2)
+        return ' Instance of class "{0}" in module "{1}" \n flag (P1): {2} \n flag (P2): {3} '.format(self.__class__.__name__, self.__module__, self.flag['P1'], self.flag['P2'])
 
     ############################################################################ 
 
@@ -7832,13 +6693,13 @@ class PolInfo:
         ------------------------------------------------------------------------
         Perform a Fourier transform of an Electric field time series after 
         doubling the length of the sequence with zero padding (in order to be 
-        identical to what would be obtained from a XF oepration)
+        identical to what would be obtained from a XF operation)
 
         Keyword Input(s):
 
-        pol     polarization to be Fourier transformed. Set to 'P1' or 'P2'. If 
-                None provided, time series of both polarizations are Fourier 
-                transformed.
+        pol     [scalar or list] polarization to be Fourier transformed. Set 
+                to 'P1' and/or 'P2'. If None (default) provided, time series 
+                of both polarizations are Fourier transformed.
         ------------------------------------------------------------------------
         """
 
@@ -7857,7 +6718,7 @@ class PolInfo:
     def delay_compensation(self, delaydict):
         
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Routine to apply delay compensation to Electric field spectra through
         additional phase. This assumes that the spectra have already been made
 
@@ -7868,19 +6729,19 @@ class PolInfo:
                     dictionary with the following keys and values:
                     'frequencies': scalar, list or numpy vector specifying the 
                            frequencie(s) (in Hz) for which delays are specified. 
-                           If a scalar is specified, the delays are assumed to be
-                           frequency independent and the delays are assumed to be
-                           valid for all frequencies. If a vector is specified, 
-                           it must be of same size as the delays and as the 
-                           number of samples in the electric field timeseries. 
-                           These frequencies are assumed to match those of the 
-                           electric field spectrum. No default.
+                           If a scalar is specified, the delays are assumed to 
+                           be frequency independent and the delays are assumed 
+                           to be valid for all frequencies. If a vector is 
+                           specified, it must be of same size as the delays and 
+                           as the number of samples in the electric field 
+                           timeseries. These frequencies are assumed to match 
+                           those of the electric field spectrum. No default.
                     'delays': list or numpy vector specifying the delays (in 
-                           seconds) at the respective frequencies which are to be 
-                           compensated through additional phase in the electric 
-                           field spectrum. Must be of same size as frequencies 
-                           and the size of the electric field timeseries. No
-                           default.
+                           seconds) at the respective frequencies which are to 
+                           be compensated through additional phase in the 
+                           electric field spectrum. Must be of same size as 
+                           frequencies and the size of the electric field 
+                           timeseries. No default.
                     'fftshifted': boolean scalar indicating if the frequencies
                            provided have already been fft-shifted. If True 
                            (default) or this key is absent, the frequencies are 
@@ -7889,7 +6750,7 @@ class PolInfo:
                            compensation to rightly align with the fft-shifted 
                            electric field spectrum computed in member function 
                            FT(). 
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         try:
@@ -7941,11 +6802,12 @@ class PolInfo:
 
     ############################################################################ 
 
-    def update_flags(self, flags=None):
+    def update_flags(self, flags=None, verify=False):
 
         """
         ------------------------------------------------------------------------
-        Updates the flags based on current inputs
+        Updates the flags based on current inputs and verifies and updates flags
+        based on current values of the electric field.
     
         Inputs:
     
@@ -7954,8 +6816,22 @@ class PolInfo:
                  Default=None means no new flagging to be applied. If 
                  the value under the polarization key is True, it is to be 
                  flagged and if False, it is to be unflagged.
+
+        verify   [boolean] If True, verify and update the flags, if necessary.
+                 Electric fields are checked for NaN values and if found, the
+                 flag in the corresponding polarization is set to True. 
+                 Default=False. 
+
+        Flag verification and re-updating happens if flags is set to None or if
+        verify is set to True.
         ------------------------------------------------------------------------
         """
+
+        # if not isinstance(stack, bool):
+        #     raise TypeError('Input keyword stack must be of boolean type')
+
+        if not isinstance(verify, bool):
+            raise TypeError('Input keyword verify must be of boolean type')
 
         if flags is not None:
             if not isinstance(flags, dict):
@@ -7967,14 +6843,21 @@ class PolInfo:
                     else:
                         raise TypeError('flag values must be boolean')
 
+        # Perform flag verification and re-update current flags
+        if verify or (flags is None):
+            for pol in ['P1', 'P2']:
+                if NP.any(NP.isnan(self.Et[pol])):
+                    self.flag[pol] = True
+
     ############################################################################ 
 
-    def update(self, Et=None, Ef=None, flags=None, delaydict=None):
+    def update(self, Et=None, Ef=None, flags=None, delaydict=None,
+               verify=False):
         
         """
         ------------------------------------------------------------------------
-        Updates the electric field time series and spectra for different
-        polarizations
+        Updates the electric field time series and spectra, and flags for 
+        different polarizations
 
         Inputs:
         
@@ -8017,12 +6900,20 @@ class PolInfo:
                       compensation to rightly align with the fft-shifted 
                       electric field spectrum computed in member function 
                       FT(). 
+
+        verify [boolean] If True, verify and update the flags, if necessary.
+               Electric fields are checked for NaN values and if found, the
+               flag in the corresponding polarization is set to True. 
+               Default=False. 
         ------------------------------------------------------------------------
         """
 
-        if flags is not None:
-            self.update_flags(flags)
-
+        current_flags = copy.deepcopy(self.flag)
+        if flags is None:
+            flags = copy.deepcopy(current_flags)
+        # if flags is not None:
+        #     self.update_flags(flags)
+            
         if Et is not None:
             if isinstance(Et, dict):
                 for pol in ['P1', 'P2']:
@@ -8030,7 +6921,8 @@ class PolInfo:
                         self.Et[pol] = Et[pol]
                         if NP.any(NP.isnan(Et[pol])):
                             # self.Et[pol] = NP.nan
-                            self.flag[pol] = True
+                            flags[pol] = True
+                            # self.flag[pol] = True
                 self.FT()  # Update the spectrum
             else:
                 raise TypeError('Input parameter Et must be a dictionary')
@@ -8042,14 +6934,18 @@ class PolInfo:
                         self.Ef[pol] = Ef[pol]
                         if NP.any(NP.isnan(Ef[pol])):
                             # self.Ef[pol] = NP.nan
-                            self.flag[pol] = True
+                            flags[pol] = True
+                            # self.flag[pol] = True
             else:
                 raise TypeError('Input parameter Ef must be a dictionary')
 
         if delaydict is not None:
             self.delay_compensation(delaydict)
 
-#################################################################################
+        # Verify and update flags
+        self.update_flags(flags=flags, verify=verify)
+            
+################################################################################
 
 class Antenna:
 
@@ -8070,6 +6966,8 @@ class Antenna:
     timestamp:  [Scalar] String or float representing the timestamp for the 
                 current attributes
 
+    timestamps  [list] list of all timestamps to be held in the stack 
+
     t:          [vector] The time axis for the time series of electric fields
 
     f:          [vector] Frequency axis obtained by a Fourier Transform of
@@ -8080,6 +6978,19 @@ class Antenna:
     antpol:     [Instance of class PolInfo] polarization information for the 
                 antenna. Read docstring of class PolInfo for details
 
+    Et_stack    [dictionary] holds a stack of complex electric field time series 
+                measured at various time stamps under 2 polarizations which are 
+                stored under keys 'P1' and 'P2'
+                
+    Ef_stack    [dictionary] holds a stack of complex electric field spectra 
+                measured at various time stamps under 2 polarizations which are 
+                stored under keys 'P1' and 'P2'
+
+    flag_stack
+                [dictionary] holds a stack of flags appropriate for different 
+                time stamps as a numpy array under 2 polarizations which are 
+                stored under keys 'P1' and 'P2'
+
     wts:        [dictionary] The gridding weights for antenna. Different 
                 polarizations 'P1' and 'P2' form the keys 
                 of this dictionary. These values are in general complex. Under 
@@ -8087,11 +6998,11 @@ class Antenna:
                 where each vector corresponds to a frequency channel. See 
                 wtspos_scale for more requirements.
 
-    wtspos      [dictionary] two-dimensional locations of the gridding weights in
-                wts for each polarization under keys 'P1' and 'P2'. The locations 
-                are in ENU coordinate system as a list of 2-column numpy arrays. 
-                Each 2-column array in the list is the position of the gridding 
-                weights for a corresponding frequency 
+    wtspos      [dictionary] two-dimensional locations of the gridding weights 
+                in wts for each polarization under keys 'P1' and 'P2'. The 
+                locations are in ENU coordinate system as a list of 2-column 
+                numpy arrays. Each 2-column array in the list is the position 
+                of the gridding weights for a corresponding frequency 
                 channel. The size of the list must be the same as wts and the 
                 number of channels. Units are in number of wavelengths. See 
                 wtspos_scale for more requirements.
@@ -8124,12 +7035,35 @@ class Antenna:
     channels():  Computes the frequency channels from a temporal Fourier 
                  Transform
 
+    FT()         Computes the Fourier transform of the time series of the 
+                 antennas in the antenna array to compute the visibility 
+                 spectra. Read docstring of member function FT() of class 
+                 PolInfo
+
+    FT_pp()     Computes the Fourier transform of the time series of the 
+                 antennas in the antenna array to compute the visibility 
+                 spectra. Read docstring of member function FT() of class 
+                 PolInfo. Differs from FT() member function in that here 
+                 an instance of class Antenna is returned and is mainly used 
+                 in case of parallel processing and is not meant to be 
+                 accessed directly by the user. Use FT() for all other pruposes.
+
     update_flags()
                  Updates flags for polarizations provided as input parameters
 
     update():    Updates the antenna instance with newer attribute values
                  Updates the electric field spectrum and timeseries. It also
                  applies Fourier transform if timeseries is updated
+
+    update_pp()  Wrapper for member function update() and returns the updated 
+                 instance of this class. Mostly intended to be used when 
+                 parallel processing is applicable and not to be used directly.
+                 Use update() instead when updates are to be applied directly.
+
+    get_E_fields() 
+                 Returns the electric fields based on selection criteria on 
+                 timestamp flags, timestamps and frequency channel indices and 
+                 the type of data (most recent or stacked electric fields)
 
     save():      Saves the antenna information to disk. Needs serious 
                  development. 
@@ -8146,7 +7080,8 @@ class Antenna:
 
         Class attributes initialized are:
         label, latitude, location, pol, t, timestamp, f0, f, wts, wtspos, 
-        wtspos_scale, blc, trc, and antpol
+        wtspos_scale, blc, trc, timestamps, antpol, Et_stack, Ef_stack, and
+        flag_stack
      
         Read docstring of class Antenna for details on these attributes.
         ------------------------------------------------------------------------
@@ -8185,8 +7120,13 @@ class Antenna:
         self.antpol = PolInfo(nsamples=nsamples)
         self.t = 0.0
         self.timestamp = 0.0
+        self.timestamps = []
         self.f0 = center_freq
         self.f = self.f0
+
+        self.Et_stack = {}
+        self.Ef_stack = {}
+        self.flag_stack = {} 
 
         self.wts = {}
         self.wtspos = {}
@@ -8194,6 +7134,10 @@ class Antenna:
         self._gridinfo = {}
 
         for pol in ['P1', 'P2']:
+            self.Et_stack[pol] = None
+            self.Ef_stack[pol] = None
+            self.flag_stack[pol] = NP.asarray([])
+
             self.wtspos[pol] = []
             self.wts[pol] = []
             self.wtspos_scale[pol] = None
@@ -8202,12 +7146,12 @@ class Antenna:
         self.blc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1)
         self.trc = NP.asarray([self.location.x, self.location.y]).reshape(1,-1)
 
-    #################################################################################
+    ############################################################################
 
     def __str__(self):
         return ' Instance of class "{0}" in module "{1}" \n label: ({2[0]}, {2[1]}) \n location: {3}'.format(self.__class__.__name__, self.__module__, self.label, self.location.__str__())
 
-    #################################################################################
+    ############################################################################
 
     def channels(self):
 
@@ -8224,60 +7168,116 @@ class Antenna:
 
         return DSP.spectax(2*self.t.size, self.t[1]-self.t[0], shift=True)
 
-    #############################################################################
+    ############################################################################
 
     def FT(self, pol=None):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Computes the Fourier transform of the time series of the antennas in the 
-        antenna array to compute the visibility spectra
-        ----------------------------------------------------------------------------
+        antenna array to compute the visibility spectra. Read docstring of 
+        member function FT() of class PolInfo
+
+        Inputs:
+
+        pol    [scalar or list] Scalar string or list of strings specifying 
+               polarization. Accepted values are 'P1' and/or 'P2'. Default=None 
+               means both time series of electric fields of both polarizations 
+               are Fourier transformed
+
+        # stack  [boolean] If set to True, perform Fourier transform on the 
+        #        timestamp-stacked electric field time series. Default = False
+        ------------------------------------------------------------------------
         """
         
         self.antpol.FT(pol=pol)
         
-    ################################################################################# 
+    ############################################################################
 
-    def FT_new(self, pol=None):
+    def FT_pp(self, pol=None):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Computes the Fourier transform of the time series of the antennas in the 
-        antenna array to compute the visibility spectra
-        ----------------------------------------------------------------------------
+        antenna array to compute the visibility spectra. Read docstring of 
+        member function FT() of class PolInfo. Differs from FT() member function 
+        in that here an instance of class Antenna is returned and is mainly used 
+        in case of parallel processing and is not meant to be accessed directly 
+        by the user. Use FT() for all other pruposes.
+
+        Inputs:
+
+        pol    [scalar or list] Scalar string or list of strings specifying 
+               polarization. Accepted values are 'P1' and/or 'P2'. Default=None 
+               means both time series of electric fields of both polarizations 
+               are Fourier transformed
+
+        # stack  [boolean] If set to True, perform Fourier transform on the 
+        #        timestamp-stacked electric field time series. Default = False
+
+        Outputs:
+
+        Instance of class Antenna
+        ------------------------------------------------------------------------
         """
         
         self.antpol.FT(pol=pol)
         return self
         
-    ################################################################################# 
+    ############################################################################
 
-    def update_flags(self, flags=None):
+    def update_flags(self, flags=None, stack=False, verify=True):
 
         """
         ------------------------------------------------------------------------
-        Updates flags for antenna polarizations 
+        Updates flags for antenna polarizations. Invokes member function 
+        update_flags() of class PolInfo
 
         Inputs:
 
         flags  [dictionary] boolean flags for each of the 2 polarizations 
                of the antenna which are stored under keys 'P1' and 'P2',
                Default=None means no updates for flags.
+
+        stack  [boolean] If True (default), appends the updated flag to the
+               end of the stack of flags as a function of timestamp. If False,
+               updates the last flag in the stack with the updated flag and 
+               does not append
+
+        verify [boolean] If True, verify and update the flags, if necessary.
+               Electric fields are checked for NaN values and if found, the
+               flag in the corresponding polarization is set to True. 
+               Default=True 
         ------------------------------------------------------------------------
         """
 
-        if flags is not None:
-            self.antpol.update_flags(flags)
+        # By default carry over the flags from previous timestamp
+
+        if flags is None:
+            flags = copy.deepcopy(self.antpol.flag)
+
+        self.antpol.update_flags(flags=flags, verify=verify)
+
+        # Stack on to last value or update last value in stack
+        for pol in ['P1', 'P2']: 
+            if stack is True:
+                self.flag_stack[pol] = NP.append(self.flag_stack[pol], self.antpol.flag[pol])
+            else:
+                if self.flag_stack[pol].size == 0:
+                    self.flag_stack[pol] = NP.asarray(self.antpol.flag[pol]).reshape(-1)
+                else:
+                    self.flag_stack[pol][-1] = self.antpol.flag[pol]
+            self.flag_stack[pol] = self.flag_stack[pol].astype(NP.bool)
 
     ############################################################################
 
     def update(self, update_dict=None, verbose=True):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Updates the antenna instance with newer attribute values. Updates 
-        the electric field spectrum and timeseries
+        the electric field spectrum and timeseries. It also applies Fourier 
+        transform if timeseries is updated
 
         Inputs:
 
@@ -8360,9 +7360,19 @@ class Antenna:
                        applied). Refer to the docstring of member function
                        delay_compensation() of class PolInfo for more details.
 
+            stack      [boolean] If True (default), appends the updated flag 
+                       and data to the end of the stack as a function of 
+                       timestamp. If False, updates the last flag and data in 
+                       the stack and does not append
+
+            verify     [boolean] If True, verify and update the flags, if 
+                       necessary. Electric fields are checked for NaN values and 
+                       if found, the flag in the corresponding polarization is 
+                       set to True. Default=True 
+
         verbose    [boolean] If True, prints diagnostic and progress messages. 
                    If False (default), suppress printing such messages.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         label = None
@@ -8370,6 +7380,8 @@ class Antenna:
         timestamp = None
         t = None
         flags = None
+        stack = False
+        verify_flags = True
         Et = None
         wtsinfo = None
         gridfunc_freq = None
@@ -8386,6 +7398,8 @@ class Antenna:
             if 't' in update_dict: t = update_dict['t']
             if 'Et' in update_dict: Et = update_dict['Et']
             if 'flags' in update_dict: flags = update_dict['flags']
+            if 'stack' in update_dict: stack = update_dict['stack']
+            if 'verify_flags' in update_dict: verify_flags = update_dict['verify_flags']            
             if 'wtsinfo' in update_dict: wtsinfo = update_dict['wtsinfo']
             if 'gridfunc_freq' in update_dict: gridfunc_freq = update_dict['gridfunc_freq']
             if 'ref_freq' in update_dict: ref_freq = update_dict['ref_freq']
@@ -8393,17 +7407,31 @@ class Antenna:
 
         if label is not None: self.label = label
         if location is not None: self.location = location
-        if timestamp is not None: self.timestamp = timestamp
+        if timestamp is not None:
+            self.timestamp = timestamp
+            self.timestamps += [copy.deepcopy(timestamp)]
 
         if t is not None:
             self.t = t
             self.f = self.f0 + self.channels()     
 
-        if flags is not None:        
-            self.update_flags(flags) 
+        # Updates, Et, Ef, delays, flags and verifies flags
+        if (Et is not None) or (delaydict is not None) or (flags is not None):
+            self.antpol.update(Et=Et, delaydict=delaydict, flags=flags, verify=verify_flags) 
 
-        if (Et is not None) or (delaydict is not None):
-            self.antpol.update(Et=Et, delaydict=delaydict)
+        # Stack flags and data
+        self.update_flags(flags=None, stack=stack, verify=True)  
+        for pol in ['P1', 'P2']:
+            if self.Et_stack[pol] is None:
+                self.Et_stack[pol] = copy.deepcopy(self.antpol.Et[pol].reshape(1,-1))
+                self.Ef_stack[pol] = copy.deepcopy(self.antpol.Ef[pol].reshape(1,-1))
+            else:
+                if stack:
+                    self.Et_stack[pol] = NP.vstack((self.Et_stack[pol], self.antpol.Et[pol].reshape(1,-1)))
+                    self.Ef_stack[pol] = NP.vstack((self.Ef_stack[pol], self.antpol.Ef[pol].reshape(1,-1)))
+                else:
+                    self.Et_stack[pol][-1,:] = copy.deepcopy(self.antpol.Et[pol].reshape(1,-1))
+                    self.Ef_stack[pol][-1,:] = copy.deepcopy(self.antpol.Ef[pol].reshape(1,-1))
         
         blc_orig = NP.copy(self.blc)
         trc_orig = NP.copy(self.trc)
@@ -8474,23 +7502,163 @@ class Antenna:
 
     ############################################################################
 
-    def update_new(self, update_dict=None, verbose=True):
+    def update_pp(self, update_dict=None, verbose=True):
 
         """
-        -------------------------------------------------------------------------
-        Wrapper for member function update() and returns the updated instance of
-        this class. Mostly intended to be used when parallel processing is 
+        ------------------------------------------------------------------------
+        Wrapper for member function update() and returns the updated instance 
+        of this class. Mostly intended to be used when parallel processing is 
         applicable and not to be used directly. Use update() instead when 
         updates are to be applied directly.
 
         See member function update() for details on inputs.
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         self.update(update_dict=update_dict, verbose=verbose)
         return self
 
-#################################################################################
+    ############################################################################
+
+    def get_E_fields(self, pol, flag=None, tselect=None, fselect=None,
+                     datapool=None):
+
+        """
+        ------------------------------------------------------------------------
+        Returns the electric fields based on selection criteria on timestamp 
+        flags, timestamps and frequency channel indices and the type of data
+        (most recent or stacked electric fields)
+
+        Inputs:
+
+        pol      [string] select baselines of this polarization that are either 
+                 flagged or unflagged as specified by input parameter flag. 
+                 Allowed values are 'P1' and 'P2'. Only one of these values 
+                 must be specified.
+
+        flag     [boolean] If False, return electric fields of unflagged 
+                 timestamps, or if True return flagged ones. Default=None means 
+                 all electric fields independent of flagging are returned. This 
+                 flagging refers to that along the timestamp axis under each
+                 polarization
+ 
+        tselect  [scalar, list, numpy array] timestamp index for electric 
+                 fields selection. For most recent electric fields, it must be 
+                 set to -1. For all other selections, indices in tselect must 
+                 be in the valid range of indices along time axis for stacked 
+                 electric fields. Default=None means most recent data is 
+                 selected. 
+
+        fselect  [scalar, list, numpy array] frequency channel index for 
+                 electric field spectrum selection. Indices must be in the 
+                 valid range of indices along the frequency axis for 
+                 electric fields. Default=None selects all frequency channels
+
+        datapool [string] denotes the data pool from which electric fields are 
+                 to be selected. Accepted values are 'current', 'stack', and
+                 None (default, same as 'current'). If set to None or 
+                 'current', the value in tselect is ignored and only 
+                 electric fields of the most recent timestamp are selected. If 
+                 set to None or 'current' the attribute Ef_stack is checked 
+                 first and if unavailable, attribute antpol.Ef is used. For 
+                 'stack', attribute Ef_stack respectively
+
+        Output:
+
+        outdict  [dictionary] consists of electric fields information under the 
+                 following keys:
+
+                 'label'        [string] antenna label 
+                 'pol'          [string] polarization string, one of 'P1' or 
+                                'P22'
+                 'E-fields'     [numpy array] selected electric fields spectra
+                                with dimensions n_ts x nchan which
+                                are in time-frequency order. If no electric 
+                                fields are found satisfying the selection 
+                                criteria, the value under this key is set to 
+                                None.
+                 'twts'         [numpy array of boolean] weights corresponding 
+                                to the time axis in the selected electric 
+                                fields. A zero weight indicates unflagged 
+                                electric fields were not found for that 
+                                timestamp. A non-zero weight indicates how 
+                                many unflagged electric fields were found for 
+                                that timestamp. If no electric fields are found
+                                satisfying the selection criteria, the value 
+                                under this key is set to None.
+        ------------------------------------------------------------------------
+        """
+
+        try: 
+            pol 
+        except NameError:
+            raise NameError('Input parameter pol must be specified.')
+
+        if not isinstance(pol, str):
+            raise TypeError('Input parameter must be a string')
+        
+        if not pol in ['P1', 'P2']:
+            raise ValueError('Invalid specification for input parameter pol')
+
+        if datapool is None:
+            n_timestamps = 1
+            datapool = 'current'
+        elif datapool == 'stack':
+            n_timestamps = len(self.timestamps)
+        elif datapool == 'current':
+            n_timestamps = 1
+        else:
+            raise ValueError('Invalid datapool specified')
+
+        if tselect is None:
+            tsind = NP.asarray(-1).reshape(-1)  # Selects most recent data
+        elif isinstance(tselect, (int, float, list, NP.ndarray)):
+            tsind = NP.asarray(tselect).ravel()
+            tsind = tsind.astype(NP.int)
+            if tsind.size == 1:
+                if (tsind < -1) or (tsind >= n_timestamps):
+                    tsind = NP.asarray(-1).reshape(-1)
+            else:
+                if NP.any(tsind < 0) or NP.any(tsind >= n_timestamps):
+                    raise IndexError('Timestamp indices outside available range for the specified datapool')
+        else:
+            raise TypeError('tselect must be None, integer, float, list or numpy array for visibilities selection')
+
+        if fselect is None:
+            chans = NP.arange(self.f.size)  # Selects all channels
+        elif isinstance(fselect, (int, float, list, NP.ndarray)):
+            chans = NP.asarray(fselect).ravel()
+            chans = chans.astype(NP.int)
+            if NP.any(chans < 0) or NP.any(chans >= self.f.size):
+                raise IndexError('Channel indices outside available range')
+        else:
+            raise TypeError('fselect must be None, integer, float, list or numpy array for visibilities selection')
+
+        select_ind = NP.ix_(tsind, chans)
+
+        outdict = {}
+        outdict['pol'] = pol
+        outdict['twts'] = None
+        outdict['label'] = self.label
+        outdict['E-fields'] = None
+        
+        if datapool == 'current':
+            if self.Ef_stack[pol] is not None:
+                outdict['E-fields'] = self.Ef_stack[pol][-1,chans].reshape(1,chans.size)
+                outdict['twts'] = NP.logical_not(NP.asarray(self.flag_stack[pol][-1]).astype(NP.bool).reshape(-1)).astype(NP.float)
+            else:
+                outdict['E-fields'] = self.antpol.Ef[pol][chans].reshape(1,chans.size)
+                outdict['twts'] = NP.logical_not(NP.asarray(self.antpol.flag[pol]).astype(NP.bool).reshape(-1)).astype(NP.float)
+        else:
+            if self.Ef_stack[pol] is not None:
+                outdict['E-fields'] = self.Ef_stack[pol][select_ind].reshape(tsind.size,chans.size)
+                outdict['twts'] = NP.logical_not(NP.asarray(self.flag_stack[pol][tsind]).astype(NP.bool).reshape(-1)).astype(NP.float)
+            else:
+                raise ValueError('Attribute Ef_stack has not been initialized to obtain electric fields from. Consider running method stack()')
+
+        return outdict
+
+################################################################################
 
 class AntennaArray:
 
@@ -8504,80 +7672,155 @@ class AntennaArray:
                  of class Antenna. The keys themselves are identical to the
                  label attributes of the antenna instances they hold.
 
-    ants_blc_P1  [2-element Numpy array] The coordinates of the bottom left 
-                 corner of the array of antennas for polarization P1.
+    blc          [2-element Numpy array] The coordinates of the bottom left 
+                 corner of the array of antennas
 
-    ants_trc_P1  [2-element Numpy array] The coordinates of the top right 
-                 corner of the array of antennas for polarization P1.
+    trc          [2-element Numpy array] The coordinates of the top right 
+                 corner of the array of antennas
 
-    ants_blc_P2  [2-element Numpy array] The coordinates of the bottom left 
-                 corner of the array of antennas for polarization P2.
+    grid_blc     [2-element Numpy array] The coordinates of the bottom left 
+                 corner of the grid constructed for the array of antennas.
+                 This may differ from blc due to any extra padding during the 
+                 gridding process.
 
-    ants_trc_P2  [2-element Numpy array] The coordinates of the top right 
-                 corner of the array of antennas for polarization P2.
-
-    grid_blc_P1  [2-element Numpy array] The coordinates of the bottom left 
+    grid_trc     [2-element Numpy array] The coordinates of the top right 
                  corner of the grid constructed for the array of antennas
-                 for polarization P1. This may differ from ants_blc_P1 due to
-                 any extra padding during the gridding process.
+                 This may differ from trc due to any extra padding during the 
+                 gridding process.
 
-    grid_trc_P1  [2-element Numpy array] The coordinates of the top right 
-                 corner of the grid constructed for the array of antennas
-                 for polarization P1. This may differ from ants_trc_P1 due to
-                 any extra padding during the gridding process.
+    grid_ready   [boolean] True if the grid has been created, False otherwise
 
-    grid_blc_P2  [2-element Numpy array] The coordinates of the bottom left 
-                 corner of the grid constructed for the array of antennas
-                 for polarization P2. This may differ from ants_blc_P2 due to
-                 any extra padding during the gridding process.
+    gridu        [Numpy array] u-locations of the grid lattice stored as 2D 
+                 array. It is the same for all frequencies and hence no third 
+                 dimension for the spectral axis.
 
-    grid_trc_P2  [2-element Numpy array] The coordinates of the top right 
-                 corner of the grid constructed for the array of antennas
-                 for polarization P2. This may differ from ants_trc_P2 due to
-                 any extra padding during the gridding process.
+    gridv        [Numpy array] v-locations of the grid lattice stored as 2D 
+                 array. It is the same for all frequencies and hence no third 
+                 dimension for the spectral axis.
 
-    grid_ready_P1 
-                 [boolean] True if the grid has been created for P1 polarization,
-                 False otherwise
+    antennas_center
+                 [Numpy array] geometrical center of the antenna array locations
+                 as a 2-element array of x- and y-values of the center. This is
+                 not the center of mass of the antenna locations but simply the 
+                 mid-point between the extreme x- and y- coordinates of the 
+                 antennas
 
-    grid_ready_P2
-                 [boolean] True if the grid has been created for P2 polarization,
-                 False otherwise
+    grid_illuminaton
+                 [dictionary] Electric field illumination of antenna aperture
+                 for each polarization held under keys 'P1' and 'P2'. Could be 
+                 complex. Stored as numpy arrays in the form of cubes with 
+                 same dimensions as gridu or gridv in the transverse (first two
+                 dimensions) and the depth along the third dimension (spectral 
+                 axis) is equal to number of frequency channels
 
-    gridx_P1     [Numpy array] x-locations of the grid lattice for P1
-                 polarization
-
-    gridy_P1     [Numpy array] y-locations of the grid lattice for P1
-                 polarization
-
-    gridx_P2     [Numpy array] x-locations of the grid lattice for P2
-                 polarization
-
-    gridy_P2     [Numpy array] y-locations of the grid lattice for P2
-                 polarization
-
-    grid_illuminaton_P1
-                 [Numpy array] Electric field illumination for P1 polarization 
-                 on the grid. Could be complex. Same size as the grid
-
-    grid_illuminaton_P2
-                 [Numpy array] Electric field illumination for P2 polarization 
-                 on the grid. Could be complex. Same size as the grid
-
-    grid_Ef_P1   [Numpy array] Complex Electric field of polarization P1 
-                 projected on the grid. 
-
-    grid_Ef_P2   [Numpy array] Complex Electric field of polarization P2 
-                 projected on the grid. 
+    grid_Ef      [dictionary] Complex Electric field projected on the grid
+                 for each polarization under the keys 'P1' and P2'. Stored as
+                 numpy arrays in the form of cubes with same dimensions as gridu 
+                 or gridv in the transverse (first two dimensions) and the depth 
+                 along the third dimension (spectral axis) is equal to number of 
+                 frequency channels. 
 
     f            [Numpy array] Frequency channels (in Hz)
 
     f0           [Scalar] Center frequency of the observing band (in Hz)
 
+    timestamp:  [Scalar] String or float representing the timestamp for the 
+                current attributes
+
+    timestamps  [list] list of all timestamps to be held in the stack 
+
+    grid_mapper [dictionary] antenna-to-grid mapping information for each of
+                four polarizations under keys 'P1' and 'P2'. Under each
+                polarization, it is a dictionary with values under the following 
+                keys:
+                'refind'    [list] each element in the list corresponds to a
+                            sequential frequency channel and is another list 
+                            with indices to the lookup locations that map to
+                            the grid locations (indices in 'gridind') for this 
+                            frequency channel. These indices index the array 
+                            in 'refwts'
+                'gridind'   [list] each element in the list corresponds to a
+                            sequential frequency channel and is another list 
+                            with indices to the grid locations that map to
+                            the lookup locations (indices in 'refind') for 
+                            this frequency channel.
+                'refwts'    [numpy array] antenna weights of size 
+                            n_ant x n_wts flattened to be a vector. Indices in
+                            'refind' index to this array. Currently only valid
+                            when lookup weights scale with frequency.
+                'labels'    [dictionary] contains mapping information from 
+                            antenna (specified by key which is the 
+                            antenna label). The value under each label 
+                            key is another dictionary with the following keys 
+                            and information:
+                            'twts'         [scalar] if positive, indicates
+                                           the number of timestamps that 
+                                           have gone into the measurement of Ef 
+                                           made by the antenna under the 
+                                           specific polarization. If zero, it
+                                           indicates no unflagged timestamp data
+                                           was found for the antenna and will
+                                           not contribute to the complex grid 
+                                           illumination and electric fields
+                            'gridind'      [numpy vector] one-dimensional index 
+                                           into the three-dimensional grid 
+                                           locations where the antenna
+                                           contributes illumination and 
+                                           electric fields. The one-dimensional 
+                                           indices are obtained using numpy's
+                                           multi_ravel_index() using the grid 
+                                           shape, n_u x n_v x nchan
+                            'illumination' [numpy vector] complex grid 
+                                           illumination contributed by the 
+                                           antenna to different grid
+                                           locations in 'gridind'. It is 
+                                           mapped to the grid as specified by 
+                                           indices in key 'gridind'
+                            'Ef'           [numpy vector] complex grid 
+                                           electric fields contributed by the 
+                                           antenna. It is mapped to the
+                                           grid as specified by indices in 
+                                           key 'gridind'
+                'ant'       [dictionary] dictionary with information on 
+                            contribution of all antenna lookup weights. This
+                            contains another dictionary with the following 
+                            keys:
+                            'ind_freq'     [list] each element in the list is
+                                           for a frequency channel and 
+                                           consists of a numpy vector which 
+                                           consists of indices of the 
+                                           contributing antennas
+                            'ind_all'      [numpy vector] consists of numpy 
+                                           vector which consists of indices 
+                                           of the contributing antennas
+                                           for all frequencies appended 
+                                           together. Effectively, this is just
+                                           values in 'ind_freq' of all 
+                                           frequencies appended together.
+                            'uniq_ind_all' [numpy vector] consists of numpy
+                                           vector which consists of unique 
+                                           indices of contributing antennas
+                                           for all frequencies.
+                            'rev_ind_all'  [numpy vector] reverse indices of 
+                                           'ind_all' with reference to bins of
+                                           'uniq_ind_all'
+                            'illumination' [numpy vector] complex grid
+                                           illumination weights contributed by
+                                           each antenna (including associated
+                                           kernel weight locations) and has a
+                                           size equal to that in 'ind_all'
+                'grid'      [dictionary] contains information about populated
+                            portions of the grid. It consists of values in the
+                            following keys:
+                            'ind_all'      [numpy vector] indices of all grid
+                                           locations raveled to one dimension
+                                           from three dimensions of size 
+                                           n_u x n_v x nchan
+
     Member Functions:
 
-    __init__()        Initializes an instance of class AntennaArray which manages
-                      information about an array of antennas.
+    __init__()        Initializes an instance of class AntennaArray which 
+                      manages information about an array of antennas.
                       
     __str__()         Prints a summary of current attributes
                       
@@ -8588,7 +7831,8 @@ class AntennaArray:
     __sub__()         Operator overloading for removing antenna(s)
                       
     add_antennas()    Routine to add antenna(s) to the antenna array instance. 
-                      A wrapper for operator overloading __add__() and __radd__()
+                      A wrapper for operator overloading __add__() and 
+                      __radd__()
                       
     remove_antennas() Routine to remove antenna(s) from the antenna array 
                       instance. A wrapper for operator overloading __sub__()
@@ -8602,10 +7846,27 @@ class AntennaArray:
                       to an already existing grid.
 
     grid_unconvolve() Routine to de-project the electric field illumination 
-                      pattern and the electric fields on the grid. It can operate 
-                      on the entire antenna array or incrementally de-project the 
-                      electric fields and illumination patterns from specific 
-                      antennas from an already existing grid.
+                      pattern and the electric fields on the grid. It can 
+                      operate on the entire antenna array or incrementally 
+                      de-project the electric fields and illumination patterns 
+                      from specific antennas from an already existing grid.
+
+    get_E_fields()    Routine to return the antenna labels, time-based weight 
+                      flags and electric fields (sorted by antenna label if 
+                      specified) based on selection criteria specified by flags, 
+                      timestamps, frequency channels, labels and data pool (most 
+                      recent or stack)
+
+    make_grid_cube()  Constructs the grid of complex field illumination and 
+                      electric fields using the gridding information determined 
+                      for every antenna. Flags are taken into account while 
+                      constructing this grid.
+
+    quick_beam_synthesis()  
+                      A quick generator of synthesized beam using antenna array 
+                      field illumination pattern using the center frequency. Not 
+                      intended to be used rigorously but rather for comparison 
+                      purposes and making quick plots
 
     update():         Updates the antenna array instance with newer attribute
                       values
@@ -8624,10 +7885,21 @@ class AntennaArray:
         array of antennas.
 
         Class attributes initialized are:
-        antennas, blc, trc, gridx, gridy, gridu, gridv, grid_ready, timestamp, 
-        grid_illumination, grid_Ef, f, f0, t, ordered_labels, grid_mapper
+        antennas, blc, trc, gridu, gridv, grid_ready, timestamp, 
+        grid_illumination, grid_Ef, f, f0, t, ordered_labels, grid_mapper, 
+        antennas_center
      
         Read docstring of class AntennaArray for details on these attributes.
+
+        Inputs:
+    
+        antenna_array 
+                   [Instance of class AntennaArray, dictionary holding 
+                   instance(s) instance(s) of class Antenna, list of instances 
+                   of class Antenna, or a single instance of class Antenna] 
+                   Read docstring of member funtion __add__() for more details 
+                   on this input. If provided, this will be used to initialize 
+                   the instance.
         ------------------------------------------------------------------------
         """
 
@@ -8636,15 +7908,17 @@ class AntennaArray:
         self.trc = NP.zeros(2)
         self.grid_blc = NP.zeros(2)
         self.grid_trc = NP.zeros(2)
-        self.gridx, self.gridy = None, None
         self.gridu, self.gridv = None, None
+        self.antennas_center = NP.zeros(2, dtype=NP.float).reshape(1,-1)
         self.grid_ready = False
         self.grid_illumination = {}
         self.grid_Ef = {}
+        self.caldata = {}
         self.f = None
         self.f0 = None
         self.t = None
         self.timestamp = None
+        self.timestamps = []
 
         self._ant_contribution = {}
 
@@ -8670,6 +7944,7 @@ class AntennaArray:
             self.grid_illumination[pol] = None
             self.grid_Ef[pol] = None
             self._ant_contribution[pol] = {}
+            self.caldata[pol] = None
 
         if antenna_array is not None:
             self += antenna_array
@@ -8677,26 +7952,27 @@ class AntennaArray:
             self.f = NP.copy(self.antennas.itervalues().next().f0)
             self.t = NP.copy(self.antennas.itervalues().next().t)
             self.timestamp = copy.deepcopy(self.antennas.itervalues().next().timestamp)
+            self.timestamps += [copy.deepcopy(self.timestamp)]
         
-    ################################################################################# 
+    ############################################################################
 
     def __add__(self, others):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Operator overloading for adding antenna(s)
     
         Inputs:
     
-        others     [Instance of class AntennaArray, dictionary holding instance(s)
-                   of class Antenna, list of instances of class Antenna, or a single
-                   instance of class Antenna] If a dictionary is provided, the keys
-                   should be the antenna labels and the values should be instances 
-                   of class Antenna. If a list is provided, it should be a list of 
-                   valid instances of class Antenna. These instance(s) of class
-                   Antenna will be added to the existing instance of AntennaArray
-                   class.
-        ----------------------------------------------------------------------------
+        others     [Instance of class AntennaArray, dictionary holding 
+                   instance(s) of class Antenna, list of instances of class 
+                   Antenna, or a single instance of class Antenna] If a 
+                   dictionary is provided, the keys should be the antenna 
+                   labels and the values should be instances of class Antenna. 
+                   If a list is provided, it should be a list of valid instances 
+                   of class Antenna. These instance(s) of class Antenna will be 
+                   added to the existing instance of AntennaArray class.
+        ------------------------------------------------------------------------
         """
 
         retval = self
@@ -8742,47 +8018,49 @@ class AntennaArray:
 
         return retval
 
-    ################################################################################# 
+    ############################################################################
 
     def __radd__(self, others):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Operator overloading for adding antenna(s)
     
         Inputs:
     
-        others     [Instance of class AntennaArray, dictionary holding instance(s)
-                   of class Antenna, list of instances of class Antenna, or a single
-                   instance of class Antenna] If a dictionary is provided, the keys
-                   should be the antenna labels and the values should be instances 
-                   of class Antenna. If a list is provided, it should be a list of 
-                   valid instances of class Antenna. These instance(s) of class
-                   Antenna will be added to the existing instance of AntennaArray
-                   class.
-        ----------------------------------------------------------------------------
+        others     [Instance of class AntennaArray, dictionary holding 
+                   instance(s) of class Antenna, list of instances of class 
+                   Antenna, or a single instance of class Antenna] If a 
+                   dictionary is provided, the keys should be the antenna 
+                   labels and the values should be instances of class Antenna. 
+                   If a list is provided, it should be a list of valid 
+                   instances of class Antenna. These instance(s) of class 
+                   Antenna will be added to the existing instance of 
+                   AntennaArray class.
+        ------------------------------------------------------------------------
         """
 
         return self.__add__(others)
 
-    ################################################################################# 
+    ############################################################################
 
     def __sub__(self, others):
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Operator overloading for removing antenna(s)
     
         Inputs:
     
-        others     [Instance of class AntennaArray, dictionary holding instance(s)
-                   of class Antenna, list of instances of class Antenna, list of
-                   strings containing antenna labels or a single instance of class
-                   Antenna] If a dictionary is provided, the keys should be the
-                   antenna labels and the values should be instances of class
-                   Antenna. If a list is provided, it should be a list of valid
-                   instances of class Antenna. These instance(s) of class Antenna
-                   will be removed from the existing instance of AntennaArray class.
-        ----------------------------------------------------------------------------
+        others     [Instance of class AntennaArray, dictionary holding 
+                   instance(s) of class Antenna, list of instances of class 
+                   Antenna, list of strings containing antenna labels or a 
+                   single instance of class Antenna] If a dictionary is 
+                   provided, the keys should be the antenna labels and the 
+                   values should be instances of class Antenna. If a list is 
+                   provided, it should be a list of valid instances of class 
+                   Antenna. These instance(s) of class Antenna will be removed 
+                   from the existing instance of AntennaArray class.
+        ------------------------------------------------------------------------
         """
 
         retval = self
@@ -8822,26 +8100,27 @@ class AntennaArray:
 
         return retval
 
-    ################################################################################# 
+    ############################################################################
 
     def add_antennas(self, A=None):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Routine to add antenna(s) to the antenna array instance. A wrapper for
         operator overloading __add__() and __radd__()
     
         Inputs:
     
-        A          [Instance of class AntennaArray, dictionary holding instance(s)
-                   of class Antenna, list of instances of class Antenna, or a single
-                   instance of class Antenna] If a dictionary is provided, the keys
-                   should be the antenna labels and the values should be instances 
-                   of class Antenna. If a list is provided, it should be a list of 
-                   valid instances of class Antenna. These instance(s) of class
-                   Antenna will be added to the existing instance of AntennaArray
-                   class.
-        ----------------------------------------------------------------------------
+        A          [Instance of class AntennaArray, dictionary holding 
+                   instance(s) of class Antenna, list of instances of class 
+                   Antenna, or a single instance of class Antenna] If a 
+                   dictionary is provided, the keys should be the antenna 
+                   labels and the values should be instances of class Antenna. 
+                   If a list is provided, it should be a list of valid 
+                   instances of class Antenna. These instance(s) of class 
+                   Antenna will be added to the existing instance of 
+                   AntennaArray class.
+        ------------------------------------------------------------------------
         """
 
         if A is None:
@@ -8851,26 +8130,27 @@ class AntennaArray:
         else:
             print 'Input(s) is/are not instance(s) of class Antenna.'
 
-    ################################################################################# 
+    ############################################################################
 
     def remove_antennas(self, A=None):
 
         """
-        ----------------------------------------------------------------------------
-        Routine to remove antenna(s) from the antenna array instance. A wrapper for
-        operator overloading __sub__()
+        ------------------------------------------------------------------------
+        Routine to remove antenna(s) from the antenna array instance. A wrapper 
+        for operator overloading __sub__()
     
         Inputs:
     
-        A          [Instance of class AntennaArray, dictionary holding instance(s)
-                   of class Antenna, list of instances of class Antenna, or a single
-                   instance of class Antenna] If a dictionary is provided, the keys
-                   should be the antenna labels and the values should be instances 
-                   of class Antenna. If a list is provided, it should be a list of 
+        A          [Instance of class AntennaArray, dictionary holding 
+                   instance(s) of class Antenna, list of instances of class 
+                   Antenna, or a single instance of class Antenna] If a 
+                   dictionary is provided, the keys should be the antenna 
+                   labels and the values should be instances of class Antenna. 
+                   If a list is provided, it should be a list of 
                    valid instances of class Antenna. These instance(s) of class
-                   Antenna will be removed from the existing instance of AntennaArray
-                   class.
-        ----------------------------------------------------------------------------
+                   Antenna will be removed from the existing instance of 
+                   AntennaArray class.
+        ------------------------------------------------------------------------
         """
 
         if A is None:
@@ -8878,12 +8158,13 @@ class AntennaArray:
         else:
             self = self.__sub__(A)
 
-    ################################################################################# 
+    ############################################################################
 
-    def antenna_positions(self, pol=None, flag=False, sort=True):
+    def antenna_positions(self, pol=None, flag=False, sort=True,
+                          centering=False):
         
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Routine to return the antenna label and position vectors (sorted by
         antenna label if specified)
 
@@ -8894,22 +8175,26 @@ class AntennaArray:
                  Allowed values are 'P1' and 'P2'. Default=None. 
                  This means all positions are returned irrespective of the flags
 
-        flag     [boolean] If False, return unflagged positions, otherwise return
-                 flagged ones. Default=None means return all positions
+        flag     [boolean] If False, return unflagged positions, otherwise 
+                 return flagged ones. Default=None means return all positions
                  independent of flagging or polarization
 
         sort     [boolean] If True, returned antenna information is sorted 
                  by antenna label. Default = True.
 
+        centering 
+                 [boolean] If False (default), does not subtract the mid-point
+                 between the bottom left corner and the top right corner. If
+                 True, subtracts the mid-point and makes it the origin
+
         Output:
 
         outdict  [dictionary] Output consists of a dictionary with the following 
                  keys and information:
-                 'labels':    Contains a numpy array of strings of antenna 
-                              labels
+                 'labels':    list of strings of antenna labels
                  'positions': position vectors of antennas (3-column 
                               array)
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         if not isinstance(sort, bool):
@@ -8920,9 +8205,9 @@ class AntennaArray:
                 raise TypeError('flag keyword has to be a Boolean value.')
 
         if pol is None:
-            if sort: # sort by first antenna label
-                xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in sorted(self.antennas.keys(), key=lambda tup: tup[0])])
-                labels = sorted(self.antennas.keys(), key=lambda tup: tup[0])
+            if sort: # sort by antenna label
+                xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in sorted(self.antennas.keys())])
+                labels = sorted(self.antennas.keys())
             else:
                 xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in self.antennas.keys()])
                 labels = self.antennas.keys()
@@ -8933,17 +8218,18 @@ class AntennaArray:
             if pol not in ['P1', 'P2']:
                 raise ValueError('Invalid specification for input parameter pol')
 
-            if sort:                   # sort by first antenna label
+            if sort:                   # sort by antenna label
                 if flag is None:       # get all positions
-                    xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in sorted(self.antennas.keys(), key=lambda tup: tup[0])])
-                    labels = [label for label in sorted(self.antennas.keys(), key=lambda tup: tup[0])]
+                    xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in sorted(self.antennas.keys())])
+                    labels = sorted(self.antennas.keys())
                 else:
                     if flag:           # get flagged positions
-                        xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in sorted(self.antennas.keys(), key=lambda tup: tup[0]) if self.antennas[label].antpol.flag[pol]])
-                        labels = [label for label in sorted(self.antennas.keys(), key=lambda tup: tup[0]) if self.antennas[label].antpol.flag[pol]]                    
+                        xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in sorted(self.antennas.keys()) if self.antennas[label].antpol.flag[pol]])
+                        labels = [label for label in sorted(self.antennas.keys()) if self.antennas[label].antpol.flag[pol]]
                     else:              # get unflagged positions
-                        xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in sorted(self.antennas.keys(), key=lambda tup: tup[0]) if not self.antennas[label].antpol.flag[pol]])
-                        labels = [label for label in sorted(self.antennas.keys(), key=lambda tup: tup[0]) if not self.antennas[label].antpol.flag[pol]]
+                        xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in sorted(self.antennas.keys()) if not self.antennas[label].antpol.flag[pol]])
+                        labels = [label for label in sorted(self.antennas.keys()) if not self.antennas[label].antpol.flag[pol]]
+
             else:                      # no sorting
                 if flag is None:       # get all positions
                     xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in self.antennas.keys()])
@@ -8956,31 +8242,36 @@ class AntennaArray:
                         xyz = NP.asarray([[self.antennas[label].location.x, self.antennas[label].location.y, self.antennas[label].location.z] for label in self.antennas.keys() if not self.antennas[label].antpol.flag[pol]])
                         labels = [label for label in self.antennas.keys() if not self.antennas[label].antpol.flag[pol]]
 
+        if centering:
+            xyzcenter = 0.5 * (NP.amin(xyz, axis=0, keepdims=True) + NP.amax(xyz, axis=0, keepdims=True))
+            xyz = xyz - xyzcenter
+            self.antennas_center = xyzcenter[0,:2].reshape(1,-1)
+
         outdict = {}
         outdict['labels'] = labels
         outdict['positions'] = xyz
 
         return outdict
 
-    ################################################################################# 
+    ############################################################################
 
-    def get_E_fields(self, pol, flag=False, sort=True):
+    def get_E_fields_old(self, pol, flag=False, sort=True):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Routine to return the antenna label and Electric fields (sorted by
         antenna label if specified)
 
         Keyword Inputs:
 
         pol      [string] select antenna positions of this polarization that are 
-                 either flagged or unflagged as specified by input parameter flag. 
-                 Allowed values are 'P1' and 'P22'. Only one of these values must 
-                 be specified.
+                 either flagged or unflagged as specified by input parameter 
+                 flag. Allowed values are 'P1' and 'P22'. Only one of these 
+                 values must be specified.
 
-        flag     [boolean] If False, return electric fields of unflagged antennas,
-                 otherwise return flagged ones. Default=None means all electric 
-                 fields independent of flagging are returned.
+        flag     [boolean] If False, return electric fields of unflagged 
+                 antennas, otherwise return flagged ones. Default=None means 
+                 all electric fields independent of flagging are returned.
 
         sort     [boolean] If True, returned antenna information is sorted 
                  by antenna label. Default = True.
@@ -8992,7 +8283,7 @@ class AntennaArray:
                  'labels':    Contains a numpy array of strings of antenna 
                               labels
                  'E-fields':    measured electric fields (n_ant x nchan array)
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         try: 
@@ -9042,15 +8333,115 @@ class AntennaArray:
 
         return outdict
 
-    ################################################################################# 
+    ############################################################################
+
+    def get_E_fields(self, pol, flag=None, tselect=None, fselect=None,
+                     aselect=None, datapool=None, sort=True):
+
+        """
+        ------------------------------------------------------------------------
+        Routine to return the antenna labels, time-based weight flags and 
+        electric fields (sorted by antenna label if specified) based on 
+        selection criteria specified by flags, timestamps, frequency channels,
+        labels and data pool (most recent or stack)
+
+        Keyword Inputs:
+
+        pol      [string] select baselines of this polarization that are either 
+                 flagged or unflagged as specified by input parameter flag. 
+                 Allowed values are 'P1' and 'P2'. Only one of these values 
+                 must be specified.
+
+        flag     [boolean] If False, return electric fields of unflagged 
+                 antennas, otherwise return flagged ones. Default=None means 
+                 all electric fields independent of flagging are returned.
+
+        tselect  [scalar, list, numpy array] timestamp index for electric 
+                 fields selection. For most recent electric fields, it must 
+                 be set to -1. For all other selections, indices in tselect 
+                 must be in the valid range of indices along time axis for 
+                 stacked electric fields. Default=None means most recent data 
+                 is selected. 
+
+        fselect  [scalar, list, numpy array] frequency channel index for 
+                 electric fields selection. Indices must be in the valid range 
+                 of indices along the frequency axis for electric fields. 
+                 Default=None selects all frequency channels
+
+        aselect  [list of strings] labels of antennas to select. If set 
+                 to None (default) all antennas are selected. 
+
+        datapool [string] denotes the data pool from which electric fields are 
+                 to be selected. Accepted values are 'current', 'stack' and
+                 None (default, same as 'current'). If set to None or 
+                 'current', the value in tselect is ignored and only 
+                 electric fields of the most recent timestamp are selected. If 
+                 set to None or 'current' the attribute Ef_stack is checked 
+                 first and if unavailable, attribute antpol.Ef is used. For 
+                 'stack' attribute Ef_stack is used 
+
+        sort     [boolean] If True, returned antenna information is sorted 
+                 by antenna label. Default = True.
+
+        Output:
+
+        outdict  [dictionary] Output consists of a dictionary with the following 
+                 keys and information:
+                 'labels'        [list of strings] Contains a list of antenna 
+                                 labels
+                 'E-fields'      [list or numpy array] antenna electric fields 
+                                 under the specified polarization. In general, 
+                                 it is a list of numpy arrays where each 
+                                 array in the list corresponds to        
+                                 an individual antenna and the size of
+                                 each numpy array is n_ts x nchan. If input 
+                                 keyword flag is set to None, the electric 
+                                 fields are rearranged into a numpy array of 
+                                 size n_ts x n_ant x nchan. 
+                 'twts'          [list or numpy array] weights along time axis 
+                                 under the specified polarization. In general
+                                 it is a list of numpy arrays where each array 
+                                 in the list corresponds to an individual 
+                                 antenna and the size of each array is n_ts x 1. 
+                                 If input keyword flag is set to None, the 
+                                 time weights are rearranged into a numpy array 
+                                 of size n_ts x n_ant x 1
+        ------------------------------------------------------------------------
+        """
+
+        if not isinstance(sort, bool):
+            raise TypeError('sort keyword has to be a Boolean value.')
+
+        if aselect is None:
+            labels = self.antennas.keys()
+        elif isinstance(aselect, list):
+            labels = [label for label in aselect if label in self.antennas]
+            
+        if sort:
+            labels = sorted(labels)
+
+        efinfo = [self.antennas[label].get_E_fields(pol, flag=flag, tselect=tselect, fselect=fselect, datapool=datapool) for label in labels]
+      
+        outdict = {}
+        outdict['labels'] = labels
+        outdict['twts'] = [einfo['twts'] for einfo in efinfo]
+        outdict['E-fields'] = [einfo['E-fields'] for einfo in efinfo]
+        if flag is None:
+            outdict['E-fields'] = NP.swapaxes(NP.asarray(outdict['E-fields']), 0, 1)
+            outdict['twts'] = NP.swapaxes(NP.asarray(outdict['twts']), 0, 1)
+            outdict['twts'] = outdict['twts'][:,:,NP.newaxis]
+
+        return outdict
+
+    ############################################################################
 
     def FT(self, pol=None, parallel=False, nproc=None):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Computes the Fourier transform of the time series of the antennas in the 
         antenna array to compute the visibility spectra
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
         
         if not parallel:
@@ -9070,12 +8461,12 @@ class AntennaArray:
                 self.antennas[antenna.label] = antenna
             del updated_antennas
         
-    ################################################################################# 
+    ############################################################################
 
-    def grid(self, uvspacing=0.5, uvpad=None, pow2=True, pol=None):
+    def grid(self, uvspacing=0.5, xypad=None, pow2=True):
         
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Routine to produce a grid based on the antenna array 
 
         Inputs:
@@ -9085,21 +8476,17 @@ class AntennaArray:
                     Default = 0.5
 
         xypad       [List] Padding to be applied around the antenna locations 
-                    before forming a grid. List elements should be positive. If it 
-                    is a one-element list, the element is applicable to both x and 
-                    y axes. If list contains three or more elements, only the 
-                    first two elements are considered one for each axis. 
-                    Default = None.
+                    before forming a grid. Units in meters. List elements should 
+                    be positive. If it is a one-element list, the element is 
+                    applicable to both x and y axes. If list contains three or 
+                    more elements, only the first two elements are considered 
+                    one for each axis. Default = None.
 
-        pow2        [Boolean] If set to True, the grid is forced to have a size a 
-                    next power of 2 relative to the actual sie required. If False,
-                    gridding is done with the appropriate size as determined by
-                    uvspacing. Default = True.
-
-        pol         [String] The polarization to be gridded. Can be set to 'P11', 
-                    'P12', 'P21', or 'P22'. If set to None, gridding for all the
-                    polarizations is performed. 
-        ----------------------------------------------------------------------------
+        pow2        [Boolean] If set to True, the grid is forced to have a size 
+                    a next power of 2 relative to the actual sie required. If 
+                    False, gridding is done with the appropriate size as 
+                    determined by uvspacing. Default = True.
+        ------------------------------------------------------------------------
         """
 
         if self.f is None:
@@ -9114,41 +8501,50 @@ class AntennaArray:
         # Change itervalues() to values() when porting to Python 3.x
         # May have to change *blc and *trc with zip(*blc) and zip(*trc) when using Python 3.x
 
-        blc = [[self.antennas[label].blc[0,0], self.antennas[label].blc[0,1]] for label in self.antennas]
-        trc = [[self.antennas[label].trc[0,0], self.antennas[label].trc[0,1]] for label in self.antennas]
+        blc = NP.asarray([[self.antennas[label].blc[0,0], self.antennas[label].blc[0,1]] for label in self.antennas]).reshape(-1,2)
+        trc = NP.asarray([[self.antennas[label].trc[0,0], self.antennas[label].trc[0,1]] for label in self.antennas]).reshape(-1,2)
 
-        self.trc = NP.amax(NP.abs(NP.vstack((NP.asarray(blc), NP.asarray(trc)))), axis=0).ravel() / min_lambda
+        xycenter = 0.5 * (NP.amin(blc, axis=0, keepdims=True) + NP.amax(trc, axis=0, keepdims=True))
+        blc = blc - xycenter
+        trc = trc - xycenter
+
+        self.trc = NP.amax(NP.abs(NP.vstack((blc, trc))), axis=0).ravel() / min_lambda
         self.blc = -1 * self.trc
+        self.antennas_center = xycenter
 
-        self.gridu, self.gridv = GRD.grid_2d([(self.blc[0], self.trc[0]), (self.blc[1], self.trc[1])], pad=uvpad, spacing=uvspacing, pow2=True)
+        if xypad is None:
+            xypad = 0.0
+
+        self.gridu, self.gridv = GRD.grid_2d([(self.blc[0], self.trc[0]), (self.blc[1], self.trc[1])], pad=xypad/min_lambda, spacing=uvspacing, pow2=True)
 
         self.grid_blc = NP.asarray([self.gridu.min(), self.gridv.min()])
         self.grid_trc = NP.asarray([self.gridu.max(), self.gridv.max()])
 
         self.grid_ready = True
 
-    ############################################################################ 
+    ############################################################################
 
     # @profile
     def grid_convolve(self, pol=None, ants=None, unconvolve_existing=False,
                       normalize=False, method='NN', distNN=NP.inf, tol=None,
-                      maxmatch=None, identical_antennas=True,
+                      maxmatch=None, identical_antennas=True, cal_loop=False,
                       gridfunc_freq=None, mapping='weighted', wts_change=False,
-                      parallel=False, nproc=None, pp_method='pool', verbose=True): 
+                      parallel=False, nproc=None, pp_method='pool',
+                      verbose=True): 
 
         """
-        ----------------------------------------------------------------------------
-        Routine to project the complex illumination field pattern and the electric
-        fields on the grid. It can operate on the entire antenna array 
-        or incrementally project the electric fields and complex illumination field 
-        patterns from specific antennas on to an already existing grid. (The
-        latter is not implemented yet)
+        ------------------------------------------------------------------------
+        Routine to project the complex illumination field pattern and the 
+        electric fields on the grid. It can operate on the entire antenna array 
+        or incrementally project the electric fields and complex illumination 
+        field patterns from specific antennas on to an already existing grid. 
+        (The latter is not implemented yet)
 
         Inputs:
 
-        pol        [String] The polarization to be gridded. Can be set to 'P1' or 
-                   'P2'. If set to None, gridding for all the polarizations is 
-                   performed. Default = None
+        pol        [String] The polarization to be gridded. Can be set to 'P1' 
+                   or 'P2'. If set to None, gridding for all the polarizations 
+                   is performed. Default = None
 
         ants       [instance of class AntennaArray, single instance or list 
                    of instances of class Antenna, or a dictionary holding 
@@ -9159,9 +8555,9 @@ class AntennaArray:
                    Antenna. These instance(s) of class Antenna will 
                    be merged to the existing grid contained in the instance of 
                    AntennaArray class. If ants is not provided (set to 
-                   None), the gridding operations will be performed on the entire
+                   None), the gridding operations will be performed on the 
                    set of antennas contained in the instance of class 
-                   AntennaArray. Default = None.
+                   entire AntennaArray. Default = None.
 
         unconvolve_existing
                    [Boolean] Default = False. If set to True, the effects of
@@ -9175,9 +8571,9 @@ class AntennaArray:
                    raising an error indicating the gridding oepration cannot
                    proceed. 
 
-        normalize  [Boolean] Default = False. If set to True, the gridded weights
-                   are divided by the sum of weights so that the gridded weights 
-                   add up to unity. (Need to work on normaliation)
+        normalize  [Boolean] Default = False. If set to True, the gridded 
+                   weights are divided by the sum of weights so that the gridded 
+                   weights add up to unity. (Need to work on normaliation)
 
         method     [string] The gridding method to be used in applying the 
                    antenna weights on to the antenna array grid. 
@@ -9185,8 +8581,8 @@ class AntennaArray:
                    (cubic spline), or 'BL' (Bi-linear). In case of applying grid 
                    weights by 'NN' method, an optional distance upper bound for 
                    the nearest neighbour can be provided in the parameter distNN 
-                   to prune the search and make it efficient. Currently, only the
-                   nearest neighbour method is operational.
+                   to prune the search and make it efficient. Currently, only 
+                   the nearest neighbour method is operational.
 
         distNN     [scalar] A positive value indicating the upper bound on 
                    distance to the nearest neighbour in the gridding process. It 
@@ -9204,7 +8600,7 @@ class AntennaArray:
                    antenna, use maxmatch=1. 
 
         tol        [scalar] If set, only lookup data with abs(val) > tol will be 
-                   considered for nearest neighbour lookup. Default = None implies 
+                   considered for nearest neighbour lookup. Default=None implies 
                    all lookup values will be considered for nearest neighbour 
                    determination. tol is to be interpreted as a minimum value 
                    considered as significant in the lookup table. 
@@ -9215,30 +8611,38 @@ class AntennaArray:
                    and their gridding kernels are identical. If False, they are
                    not identical and each one has its own gridding kernel.
 
+        cal_loop   [boolean] If True, the calibration loop is assumed to be ON 
+                   and hence the calibrated electric fields are set in the 
+                   calibration loop. If False (default), the calibration loop is
+                   assumed to be OFF and the current electric fields are assumed 
+                   to be the calibrated data to be mapped to the grid 
+                   via gridding convolution.
+
         gridfunc_freq
                    [String scalar] If set to None (not provided) or to 'scale'
                    assumes that attribute wtspos is given for a
                    reference frequency which need to be scaled for the frequency
                    channels. Will be ignored if the number of elements of list 
-                   in this attribute under the specific polarization are the same
-                   as the number of frequency channels.
+                   in this attribute under the specific polarization are the 
+                   same as the number of frequency channels.
 
-        mapping    [string] indicates the type of mapping between antenna locations
-                   and the grid locations. Allowed values are 'sampled' and 
-                   'weighted' (default). 'sampled' means only the antenna measurement 
-                   closest ot a grid location contributes to that grid location, 
-                   whereas, 'weighted' means that all the antennas contribute in
-                   a weighted fashion to their nearest grid location. The former 
-                   is faster but possibly discards antenna data whereas the latter
-                   is slower but includes all data along with their weights.
+        mapping    [string] indicates the type of mapping between antenna 
+                   locations and the grid locations. Allowed values are 
+                   'sampled' and 'weighted' (default). 'sampled' means only the 
+                   antenna measurement closest ot a grid location contributes to 
+                   that grid location, whereas, 'weighted' means that all the 
+                   antennas contribute in a weighted fashion to their nearest 
+                   grid location. The former is faster but possibly discards 
+                   antenna data whereas the latter is slower but includes all 
+                   data along with their weights.
 
         wts_change [boolean] indicates if weights and/or their lcoations have 
                    changed from the previous intergration or snapshot. 
                    Default=False means they have not changed. In such a case the 
                    antenna-to-grid mapping and grid illumination pattern do not 
-                   have to be determined, and mapping and values from the previous 
-                   snapshot can be used. If True, a new mapping has to be 
-                   determined.
+                   have to be determined, and mapping and values from the 
+                   previous snapshot can be used. If True, a new mapping has to 
+                   be determined.
 
         parallel   [boolean] specifies if parallelization is to be invoked. 
                    False (default) means only serial processing
@@ -9265,7 +8669,7 @@ class AntennaArray:
 
         verbose    [boolean] If True, prints diagnostic and progress messages. 
                    If False (default), suppress printing such messages.
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         eps = 1.0e-10
@@ -9303,12 +8707,12 @@ class AntennaArray:
                                 del ants[key] # remove the dictionary element since it is not an Antenna instance
                 
                     if identical_antennas and (gridfunc_freq == 'scale'):
-                        ant_dict = self.antenna_positions(pol=apol, flag=False, sort=True)
+                        ant_dict = self.antenna_positions(pol=apol, flag=False, sort=True, centering=True)
                         ant_xy = ant_dict['positions'][:,:2]
                         self.ordered_labels = ant_dict['labels']
                         n_ant = ant_xy.shape[0]
 
-                        Ef_dict = self.get_E_fields(apol, flag=False, sort=True)
+                        Ef_dict = self.get_E_fields_old(apol, flag=False, sort=True)
                         Ef = Ef_dict['E-fields'].astype(NP.complex64)
 
                         # Since antennas are identical, read from first antenna, since wtspos are scaled with frequency, read from first frequency channel
@@ -9332,15 +8736,28 @@ class AntennaArray:
                                                       remove_oob=True, tol=tol, maxmatch=maxmatch)[:2]
                         
                 else:  
-                    ant_dict = self.antenna_positions(pol=apol, flag=None, sort=True)
+                    ant_dict = self.antenna_positions(pol=apol, flag=None, sort=True, centering=True)
                     self.ordered_labels = ant_dict['labels']
                     ant_xy = ant_dict['positions'][:,:2] # n_ant x 2
                     n_ant = ant_xy.shape[0]
 
-                    Ef_dict = self.get_E_fields(apol, flag=None, sort=True)
-                    Ef = Ef_dict['E-fields'].astype(NP.complex64)  # n_ant x nchan
+                    # Ef_dict = self.get_E_fields(apol, flag=None, sort=True)
+                    # Ef = Ef_dict['E-fields'].astype(NP.complex64)  # n_ant x nchan
+
+                    if not cal_loop:
+                        self.caldata[apol] = self.get_E_fields(apol, flag=None, tselect=-1, fselect=None, aselect=None, datapool='current', sort=True)
+                    else:
+                        if self.caldata[apol] is None:
+                            self.caldata[apol] = self.get_E_fields(apol, flag=None, tselect=-1, fselect=None, aselect=None, datapool='current', sort=True)
+
+                    Ef = self.caldata[apol]['E-fields'].astype(NP.complex64)  #  (n_ts=1) x n_ant x nchan
+                    Ef = NP.squeeze(Ef)  # n_ant x nchan
                     if Ef.shape[0] != n_ant:
                         raise ValueError('Encountered unexpected behavior. Need to debug.')
+                    ant_labels = self.caldata[apol]['labels']
+                    twts = self.caldata[apol]['twts']  # (n_ts=1) x n_ant x (nchan=1)
+                    twts = NP.squeeze(twts)
+
                     if verbose:
                         print 'Gathered antenna data for gridding convolution for timestamp {0}'.format(self.timestamp)
 
@@ -9551,6 +8968,7 @@ class AntennaArray:
                                         if self.grid_mapper[apol]['ant']['rev_ind_all'][job_ind] < self.grid_mapper[apol]['ant']['rev_ind_all'][job_ind+1]:
         
                                             self.grid_mapper[apol]['labels'][label] = {}
+                                            self.grid_mapper[apol]['labels'][label]['twts'] = twts[ant_labels.index(label)]                                        
                                             # self.grid_mapper[apol]['labels'][label]['flag'] = self.antennas[label].antpol.flag[apol]
         
                                             select_ant_ind = self.grid_mapper[apol]['ant']['rev_ind_all'][self.grid_mapper[apol]['ant']['rev_ind_all'][job_ind]:self.grid_mapper[apol]['ant']['rev_ind_all'][job_ind+1]]
@@ -9599,6 +9017,7 @@ class AntennaArray:
                                     if self.grid_mapper[apol]['ant']['rev_ind_all'][j] < self.grid_mapper[apol]['ant']['rev_ind_all'][j+1]:
     
                                         self.grid_mapper[apol]['labels'][label] = {}
+                                        self.grid_mapper[apol]['labels'][label]['twts'] = twts[ant_labels.index(label)] 
                                         # self.grid_mapper[apol]['labels'][label]['flag'] = self.antennas[label].antpol.flag[apol]
     
                                         select_ant_ind = self.grid_mapper[apol]['ant']['rev_ind_all'][self.grid_mapper[apol]['ant']['rev_ind_all'][j]:self.grid_mapper[apol]['ant']['rev_ind_all'][j+1]]
@@ -9646,6 +9065,7 @@ class AntennaArray:
                                 if self.grid_mapper[apol]['ant']['rev_ind_all'][j] < self.grid_mapper[apol]['ant']['rev_ind_all'][j+1]:
                                     select_ant_ind = self.grid_mapper[apol]['ant']['rev_ind_all'][self.grid_mapper[apol]['ant']['rev_ind_all'][j]:self.grid_mapper[apol]['ant']['rev_ind_all'][j+1]]
                                     self.grid_mapper[apol]['labels'][label] = {}
+                                    self.grid_mapper[apol]['labels'][label]['twts'] = twts[ant_labels.index(label)] 
                                     # self.grid_mapper[apol]['labels'][label]['flag'] = self.antennas[label].antpol.flag[apol]
                                     if mapping == 'weighted':
                                         gridind_raveled_around_ant = self.grid_mapper[apol]['grid']['ind_all'][select_ant_ind]
@@ -9708,7 +9128,7 @@ class AntennaArray:
     
                                     for job_ind in xrange(job_start, min(job_start+nproc, num_ant)):    # Start the parallel processes and store the outputs in a queue
                                         label = self.ordered_labels[self.grid_mapper[apol]['ant']['uniq_ind_all'][job_ind]]
-    
+                                        self.grid_mapper[apol]['labels'][label]['twts'] = twts[ant_labels.index(label)]    
                                         if self.grid_mapper[apol]['ant']['rev_ind_all'][job_ind] < self.grid_mapper[apol]['ant']['rev_ind_all'][job_ind+1]:
         
                                             select_ant_ind = self.grid_mapper[apol]['ant']['rev_ind_all'][self.grid_mapper[apol]['ant']['rev_ind_all'][job_ind]:self.grid_mapper[apol]['ant']['rev_ind_all'][job_ind+1]]
@@ -9744,6 +9164,7 @@ class AntennaArray:
                                     if self.grid_mapper[apol]['ant']['rev_ind_all'][j] < self.grid_mapper[apol]['ant']['rev_ind_all'][j+1]:
                                         select_ant_ind = self.grid_mapper[apol]['ant']['rev_ind_all'][self.grid_mapper[apol]['ant']['rev_ind_all'][j]:self.grid_mapper[apol]['ant']['rev_ind_all'][j+1]]
                                         label = self.ordered_labels[self.grid_mapper[apol]['ant']['uniq_ind_all'][j]]
+                                        self.grid_mapper[apol]['labels'][label]['twts'] = twts[ant_labels.index(label)]    
                                         gridind_raveled_around_ant = self.grid_mapper[apol]['grid']['ind_all'][select_ant_ind]
                                         uniq_gridind_raveled_around_ant = NP.unique(gridind_raveled_around_ant)
                                         list_of_ant_labels += [label]
@@ -9772,6 +9193,7 @@ class AntennaArray:
                                 if self.grid_mapper[apol]['ant']['rev_ind_all'][j] < self.grid_mapper[apol]['ant']['rev_ind_all'][j+1]:
                                     select_ant_ind = self.grid_mapper[apol]['ant']['rev_ind_all'][self.grid_mapper[apol]['ant']['rev_ind_all'][j]:self.grid_mapper[apol]['ant']['rev_ind_all'][j+1]]
                                     label = self.ordered_labels[self.grid_mapper[apol]['ant']['uniq_ind_all'][j]]
+                                    self.grid_mapper[apol]['labels'][label]['twts'] = twts[ant_labels.index(label)]                                        
                                     self.grid_mapper[apol]['labels'][label]['Ef'] = {}
                                     if mapping == 'weighted':
                                         gridind_raveled_around_ant = self.grid_mapper[apol]['grid']['ind_all'][select_ant_ind]
@@ -9787,25 +9209,25 @@ class AntennaArray:
                             if verbose:
                                 progress.finish()
 
-    ################################################################################# 
+    ############################################################################
 
     def make_grid_cube(self, pol=None, verbose=True):
 
         """
-        ----------------------------------------------------------------------------
-        Constructs the grid of complex field illumination and electric fields using 
-        the gridding information determined for every antenna. Flags are taken
-        into account while constructing this grid.
+        ------------------------------------------------------------------------
+        Constructs the grid of complex field illumination and electric fields 
+        using the gridding information determined for every antenna. Flags are 
+        taken into account while constructing this grid.
 
         Inputs:
 
-        pol     [String] The polarization to be gridded. Can be set to 'P1' or 'P2'.
-                If set to None, gridding for all the polarizations is performed. 
-                Default = None
+        pol     [String] The polarization to be gridded. Can be set to 'P1' or 
+                'P2'. If set to None, gridding for all the polarizations is 
+                performed. Default=None
         
         verbose [boolean] If True, prints diagnostic and progress messages. 
                 If False (default), suppress printing such messages.
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         if pol is None:
@@ -9841,47 +9263,160 @@ class AntennaArray:
                     self.grid_illumination[apol][gridind_unraveled] += antinfo['illumination']
                     self.grid_Ef[apol][gridind_unraveled] += antinfo['Ef']
 
-                progress.update(loopcount+1)
-                loopcount += 1
-            progress.finish()
+                if verbose:
+                    progress.update(loopcount+1)
+                    loopcount += 1
+            if verbose:
+                progress.finish()
                 
             if verbose:
                 print 'Gridded aperture illumination and electric fields for polarization {0} from {1:0d} unflagged contributing antennas'.format(apol, num_unflagged)
 
     ############################################################################ 
 
-    def update_flags(self, dictflags=None):
+    def quick_beam_synthesis(self, pol=None, keep_zero_spacing=True):
+        
+        """
+        ------------------------------------------------------------------------
+        A quick generator of synthesized beam using antenna array field 
+        illumination pattern using the center frequency. Not intended to be used
+        rigorously but rather for comparison purposes and making quick plots
+
+        Inputs:
+
+        pol     [String] The polarization of the synthesized beam. Can be set 
+                to 'P1' or 'P2'. If set to None, synthesized beam for all the 
+                polarizations are generated. Default=None
+
+        keep_zero_spacing
+                [boolean] If set to True (default), keep the zero spacing in
+                uv-plane grid illumination and as a result the average value
+                of the synthesized beam could be non-zero. If False, the zero
+                spacing is forced to zero by removing the average value fo the
+                synthesized beam
+
+        Outputs:
+
+        Dictionary with the following keys and information:
+
+        'syn_beam'  [numpy array] synthesized beam of size twice as that of the 
+                    antenna array grid. It is FFT-shifted to place the 
+                    origin at the center of the array. The peak value of the 
+                    synthesized beam is fixed at unity
+
+        'grid_power_illumination'
+                    [numpy array] complex grid illumination obtained from 
+                    inverse fourier transform of the synthesized beam in 
+                    'syn_beam' and has size twice as that of the antenna 
+                    array grid. It is FFT-shifted to have the origin at the 
+                    center. The sum of this array is set to unity to match the 
+                    peak of the synthesized beam
+
+        'l'         [numpy vector] x-values of the direction cosine grid 
+                    corresponding to x-axis (axis=1) of the synthesized beam
+
+        'm'         [numpy vector] y-values of the direction cosine grid 
+                    corresponding to y-axis (axis=0) of the synthesized beam
+        ------------------------------------------------------------------------
+        """
+
+        if not self.grid_ready:
+            raise ValueError('Need to perform gridding of the antenna array before an equivalent UV grid can be simulated')
+
+        if pol is None:
+            pol = ['P1', 'P2']
+        elif isinstance(pol, str):
+            if pol in ['P1', 'P2']:
+                pol = [pol]
+            else:
+                raise ValueError('Invalid polarization specified')
+        elif isinstance(pol, list):
+            p = [apol for apol in pol if apol in ['P1', 'P2']]
+            if len(p) == 0:
+                raise ValueError('Invalid polarization specified')
+            pol = p
+        else:
+            raise TypeError('Input keyword pol must be string, list or set to None')
+
+        pol = sorted(pol)
+
+        for apol in pol:
+            if self.grid_illumination[apol] is None:
+                raise ValueError('Grid illumination for the specified polarization is not determined yet. Must use make_grid_cube()')
+
+        chan = NP.argmin(NP.abs(self.f - self.f0))
+        grid_field_illumination = NP.empty(self.gridu.shape+(len(pol),), dtype=NP.complex)
+        for pind, apol in enumerate(pol):
+            grid_field_illumination[:,:,pind] = self.grid_illumination[apol][:,:,chan]
+
+        syn_beam = NP.fft.fft2(grid_field_illumination, s=[4*self.gridu.shape[0], 4*self.gridv.shape[1]], axes=(0,1))
+        syn_beam = NP.abs(syn_beam)**2
+
+        if not keep_zero_spacing:
+            dclevel = NP.sum(syn_beam, axis=(0,1), keepdims=True) / (1.0*syn_beam.size/len(pol))
+            syn_beam = syn_beam - dclevel
+
+        syn_beam /= syn_beam.max()  # Normalize to get unit peak for PSF
+        syn_beam_in_uv = NP.fft.ifft2(syn_beam, axes=(0,1)) # Inverse FT
+
+        # shift the array to be centered
+        syn_beam_in_uv = NP.fft.ifftshift(syn_beam_in_uv, axes=(0,1)) # Shift array to be centered
+
+        # Discard pads at either end and select only the central values of twice the original size
+        syn_beam_in_uv = syn_beam_in_uv[grid_field_illumination.shape[0]:3*grid_field_illumination.shape[0],grid_field_illumination.shape[1]:3*grid_field_illumination.shape[1],:]
+        syn_beam = NP.fft.fftshift(syn_beam[::2,::2,:], axes=(0,1))  # Downsample by factor 2 to get native resolution and shift to be centered
+        
+        du = self.gridu[0,1] - self.gridu[0,0]
+        dv = self.gridv[1,0] - self.gridv[0,0]
+        l = DSP.spectax(2*self.gridu.shape[1], resolution=du, shift=True)
+        m = DSP.spectax(2*self.gridv.shape[0], resolution=dv, shift=True)        
+
+        return {'syn_beam': syn_beam, 'grid_power_illumination': syn_beam_in_uv, 'l': l, 'm': m}
+
+    ############################################################################ 
+
+    def update_flags(self, dictflags=None, stack=True, verify=False):
 
         """
-        ----------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Updates all flags in the antenna array followed by any flags that
         need overriding through inputs of specific flag information
 
         Inputs:
 
-        dictflags  [dictionary] contains flag information overriding after default
-                   flag updates are determined. Antenna based flags are given as 
-                   further dictionaries with each under under a key which is the
-                   same as the antenna label. Flags for each antenna are
-                   specified as a dictionary holding boolean flags for each of the 
-                   two polarizations which are stored under keys 'P1' and 'P2'. 
-                   An absent key just means it is not a part of the update. Flag 
-                   information under each antenna must be of same type as input 
-                   parameter flags in member function update_flags() of class 
-                   PolInfo
-        ----------------------------------------------------------------------------
+        dictflags  [dictionary] contains flag information overriding after 
+                   default flag updates are determined. Antenna based flags are 
+                   given as further dictionaries with each under under a key 
+                   which is the same as the antenna label. Flags for each 
+                   antenna are specified as a dictionary holding boolean flags 
+                   for each of the two polarizations which are stored under 
+                   keys 'P1' and 'P2'. An absent key just means it is not a 
+                   part of the update. Flag information under each antenna must 
+                   be of same type as input parameter flags in member function 
+                   update_flags() of class PolInfo
+
+        stack      [boolean] If True (default), appends the updated flag to the
+                   end of the stack of flags as a function of timestamp. If 
+                   False, updates the last flag in the stack with the updated 
+                   flag and does not append
+
+        verify     [boolean] If True, verify and update the flags, if necessary.
+                   Electric fields are checked for NaN values and if found, the
+                   flag in the corresponding polarization is set to True. 
+                   Default=False. 
+        ------------------------------------------------------------------------
         """
 
         for label in self.antennas:
-            self.antennas[label].update_flags()
+            self.antennas[label].update_flags(stack=stack, verify=verify)
 
-        if dictflags is not None:
+        if dictflags is not None:  # Performs flag overriding. Use stack=False
             if not isinstance(dictflags, dict):
                 raise TypeError('Input parameter dictflags must be a dictionary')
             
             for label in dictflags:
                 if label in self.antennas:
-                    self.antennas[label].antpol.update_flags(flags=dictflags[label])
+                    self.antennas[label].update_flags(flags=dictflags[label], stack=False, verify=True)
 
     ############################################################################
 
@@ -9889,10 +9424,10 @@ class AntennaArray:
     def update(self, updates=None, parallel=False, nproc=None, verbose=False):
 
         """
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         Updates the antenna array instance with newer attribute values. Can also 
-        be used to add and/or remove antennas with/without affecting the existing
-        grid.
+        be used to add and/or remove antennas with/without affecting the 
+        existing grid.
 
         Inputs:
 
@@ -9906,10 +9441,10 @@ class AntennaArray:
                                               to a scalar. If not given, no 
                                               change is made to the existing
                                               timestamp attribute
-                                'do_grid'     [boolean] If set to True, create or
-                                              recreate a grid. To be specified 
-                                              when the antenna locations are
-                                              updated.
+                                'do_grid'     [boolean] If set to True, create 
+                                              or recreate a grid. To be 
+                                              specified when the antenna 
+                                              locations are updated.
                     'antennas': Holds a list of dictionaries consisting of 
                                 updates for individual antennas. Each element 
                                 in the list contains update for one antenna. 
@@ -9919,8 +9454,8 @@ class AntennaArray:
                                 exception. The other optional keys and the 
                                 information they hold are listed below:
                                 'action'      [String scalar] Indicates the type 
-                                              of update operation. 'add' adds the 
-                                              Antenna instance to the 
+                                              of update operation. 'add' adds 
+                                              the Antenna instance to the 
                                               AntennaArray instance. 'remove' 
                                               removes the antenna from the
                                               antenna array instance. 'modify'
@@ -9933,16 +9468,17 @@ class AntennaArray:
                                               grid_unconvolve()) appropriately 
                                               according to the value of the 
                                               'action' key. If set to None or 
-                                              False, gridding effects will remain
-                                              unchanged. Default=None(=False).
-                                'antenna'     [instance of class Antenna] Updated 
-                                              Antenna class instance. Can work 
-                                              for action key 'remove' even if not 
-                                              set (=None) or set to an empty 
-                                              string '' as long as 'label' key is 
-                                              specified. 
-                                'gridpol'     [Optional. String scalar] Initiates 
-                                              the specified action on 
+                                              False, gridding effects will 
+                                              remain unchanged. Default=None
+                                              (=False).
+                                'antenna'     [instance of class Antenna] 
+                                              Updated Antenna class instance. 
+                                              Can work for action key 'remove' 
+                                              even if not set (=None) or set to 
+                                              an empty string '' as long as 
+                                              'label' key is specified. 
+                                'gridpol'     [Optional. String scalar] 
+                                              Initiates the specified action on 
                                               polarization 'P1' or 'P2'. Can be 
                                               set to 'P1' or 'P2'. If not 
                                               provided (=None), then the 
@@ -9955,10 +9491,16 @@ class AntennaArray:
                                               if set and if 'action' key value 
                                               is set to 'modify'. 
                                               Default = None.
+                                'stack'       [boolean] If True (default), 
+                                              appends the updated flag and data 
+                                              to the end of the stack as a 
+                                              function of timestamp. If False, 
+                                              updates the last flag and data in 
+                                              the stack and does not append
                                 't'           [Optional. Numpy array] Time axis 
                                               of the time series. Is used only 
-                                              if set and if 'action' key value is
-                                              set to 'modify'. Default = None.
+                                              if set and if 'action' key value 
+                                              is set to 'modify'. Default=None.
                                 'timestamp'   [Optional. Scalar] Unique 
                                               identifier of the time series. Is 
                                               used only if set and if 'action' 
@@ -9999,15 +9541,16 @@ class AntennaArray:
                                               only when 'action' key is set to 
                                               'modify'. Default = None.
                                 'delaydict'   [Dictionary] contains information 
-                                              on delay compensation to be applied 
-                                              to the fourier transformed electric 
-                                              fields under each polarization which
-                                              are stored under keys 'P1' and 'P2'. 
-                                              Default is None (no delay 
+                                              on delay compensation to be 
+                                              applied to the fourier transformed 
+                                              electric fields under each 
+                                              polarization which are stored 
+                                              under keys 'P1' and 'P2'. 
+                                              Default=None (no delay 
                                               compensation to be applied). Refer 
-                                              to the docstring of member function
-                                              delay_compensation() of class 
-                                              PolInfo for more details.
+                                              to the docstring of member 
+                                              function delay_compensation() of 
+                                              class PolInfo for more details.
                                 'ref_freq'    [Optional. Scalar] Positive value 
                                               (in Hz) of reference frequency 
                                               (used if gridfunc_freq is set to
@@ -10024,19 +9567,20 @@ class AntennaArray:
                                               value remains in effect.
                                               Default = None.
                                 'norm_wts'    [Optional. Boolean] Default=False. 
-                                              If set to True, the gridded weights 
-                                              are divided by the sum of weights 
-                                              so that the gridded weights add up 
-                                              to unity. This is used only when
-                                              grid_action keyword is set when
-                                              action keyword is set to 'add' or
-                                              'modify'
+                                              If set to True, the gridded 
+                                              weights are divided by the sum of 
+                                              weights so that the gridded 
+                                              weights add up to unity. This is 
+                                              used only when grid_action keyword 
+                                              is set when action keyword is set 
+                                              to 'add' or 'modify'
                                 'gridmethod'  [Optional. String] Indicates 
                                               gridding method. It accepts the 
                                               following values 'NN' (nearest 
                                               neighbour), 'BL' (Bi-linear
                                               interpolation), and'CS' (Cubic
-                                              Spline interpolation). Default='NN'
+                                              Spline interpolation). 
+                                              Default='NN'
                                 'distNN'      [Optional. Scalar] Indicates the 
                                               upper bound on distance for a 
                                               nearest neighbour search if the 
@@ -10083,7 +9627,7 @@ class AntennaArray:
         verbose     [Boolean] Default = False. If set to True, prints some 
                     diagnotic or progress messages.
 
-        -------------------------------------------------------------------------
+        ------------------------------------------------------------------------
         """
 
         if updates is not None:
@@ -10096,6 +9640,7 @@ class AntennaArray:
                 if parallel:
                     list_of_antenna_updates = []
                     list_of_antennas = []
+
                 for dictitem in updates['antennas']:
                     if not isinstance(dictitem, dict):
                         raise TypeError('Updates to {0} instance should be provided in the form of a list of dictionaries.'.format(self.__class__.__name__))
@@ -10137,6 +9682,7 @@ class AntennaArray:
                             if 'location' not in dictitem: dictitem['location']=None
                             if 'wtsinfo' not in dictitem: dictitem['wtsinfo']=None
                             if 'flags' not in dictitem: dictitem['flags']=None
+                            if 'stack' not in dictitem: dictitem['stack']=True
                             if 'gridfunc_freq' not in dictitem: dictitem['gridfunc_freq']=None
                             if 'ref_freq' not in dictitem: dictitem['ref_freq']=None
                             if 'pol_type' not in dictitem: dictitem['pol_type']=None
@@ -10153,7 +9699,7 @@ class AntennaArray:
                                 list_of_antennas += [self.antennas[dictitem['label']]]
                                 list_of_antenna_updates += [dictitem]
 
-                            if 'gric_action' in dictitem:
+                            if 'grid_action' in dictitem:
                                 self.grid_convolve(pol=dictitem['gridpol'], ants=dictitem['antenna'], unconvolve_existing=True, normalize=dictitem['norm_wts'], method=dictitem['gridmethod'], distNN=dictitem['distNN'], tol=dictitem['tol'], maxmatch=dictitem['maxmatch'])
                     else:
                         raise ValueError('Update action should be set to "add", "remove" or "modify".')
@@ -10173,13 +9719,13 @@ class AntennaArray:
                         self.antennas[antenna.label] = antenna
                     del updated_antennas
                     
-
             if 'antenna_array' in updates: # contains updates at 'antenna array' level
                 if not isinstance(updates['antenna_array'], dict):
                     raise TypeError('Input parameter in updates for antenna array must be a dictionary with key "antenna_array"')
                 
                 if 'timestamp' in updates['antenna_array']:
                     self.timestamp = updates['antenna_array']['timestamp']
+                    self.timestamps += [copy.deepcopy(self.timestamp)] # Stacks new timestamp
 
                 if 'do_grid' in updates['antenna_array']:
                     if isinstance(updates['antenna_array']['do_grid'], boolean):
@@ -10189,6 +9735,6 @@ class AntennaArray:
 
         self.t = self.antennas.itervalues().next().t # Update time axis
         self.f = self.antennas.itervalues().next().f # Update frequency axis
-        self.update_flags()
+        self.update_flags(stack=False, verify=True)  # Refreshes current flags, no stacking
 
-    ############################################################################
+################################################################################

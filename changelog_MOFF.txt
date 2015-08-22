@@ -1,3 +1,865 @@
+From 631e2ca:
+============
+
+In antenna_array.py,
+
+(*) Add input keyword pad in member function imagr() of class
+NewImage that gives the option to turn on/off the padding of
+antenna/interferometer array grid before imaging. Update docstring
+accordingly
+(*) remove few commented statements in member function imagr() of
+class NewImage
+
+From 4b52f31:
+============
+
+In antenna_array.py,
+
+(*) Fix bug in computation of mean of MOFF beam and image in imagr()
+member function of class NewImage. Earlier the mean was estimated
+from the entire band instead of being done on a per-channel basis.
+
+From 6df795f:
+============
+
+In antenna_array.py,
+
+(*) Add attributes holimg and holbeam to class NewImage and
+initialize them in __init__() member function. The real assignment
+occurs in member function imagr()
+(*) Produce images in imagr() after padding the uv-grid by factors
+4 and 2 respectively for electric field and visibility data
+(*) Fix bug in imagr() while using electric fields where only the
+real part was getting selected in the holographic image and beam
+(*) In member functions quick_beam_synthesis() of classes
+AntennaArray and InterferometerArray ensure the fftshift and
+ifftshift applies only to axes 0 and 1
+
+From bf1af33:
+============
+
+In changelog_MOFF.txt,
+
+(*) Update hashtags after rebasing Adam's commit #e97804b in the 
+remote repository to branch FX-accumulate. The rebasing changed the 
+hashtags of some previous commits. The old hashtags are now mentioned 
+in parenthesis below.
+
+From e7a5b26 (2580912):
+============
+
+In antenna_array.py,
+
+(*) Add member functions quick_beam_synthesis() to classes 
+AntennaArray and InterferometerArray. Tested successfully. Update
+docstring of classes with descriptions of this member function
+(*) Add input keyword centering to member function antenna_positions()
+of class AntennaArray. Update docstring accordingly
+(*) In member function grid_convolve() of class AntennaArray, modify
+call to member function antenna_positions() using the input keyword
+centering set to True
+(*) Remove input keyword pol in member functions grid() of classes
+AntennaArray and InterferometerArray
+
+From b9305d8 (25c3db0):
+============
+
+In antenna_array.py,
+
+(*) Add attribute antenna_center to class AntennaArray. Initialize it
+in __init__() member function and assign it in member funciton grid().
+Update docstring accordingly
+(*) Remove unused attributes gridx and gridy of class AntennaArray
+from __init__() member function. Update docstring accordingly
+(*) Update docstring of class AntennaArray and its __init__() member
+function to accurately reflect current attributes
+
+From 252e69e (1889952):
+============
+
+In antenna_array.py,
+
+(*) Subtract the geometric center of the antenna array locations from
+BLC and TRC computation inside member function grid() of class
+AntennaArray
+(*) Change input keyword uvpad to xypad in member function grid() of
+class AntennaArray. Change docstring accordingly
+
+From d694652:
+============
+
+In antenna_array.py,
+
+(*) Modify docstring of member function antenna_positions() of class
+AntennaArray to indicate the labels returned are in a list of strings
+(*) Modify docstring of member function baseline_vectors() of class
+InterferometerArray to indicate the labels returned are in a list of
+tuples of antenna labels
+
+From 9528c79:
+============
+
+In antenna_array.py,
+
+(*) Compute gridded illumination and visibilities ignoring twts in
+member function make_grid_cube() of class InterferometerArray
+(*) Minor changes to widths of bounding lines and docstrings to be
+less than 80-characters wide
+(*) Remove commented and deprecated classes PolInfo_old, Antenna_old
+and AntennaArray_old
+
+From 6d5890b:
+============
+
+In antenna_array.py,
+
+(*) Add new attribute caldata to class AntennaArray to carry
+information about calibrated antenna data and initialize in
+__init__() member function. Update docstring accordingly
+(*) Add input keyword cal_loop in the arguments list of member
+function grid_convolve() of class InterferometerArray to indicate
+if the calibration loop is ON or OFF. Update docstring of this
+member function accordingly
+(*) Update/refresh attribute caldata inside member function
+grid_convolve() of class AntennaArray depending on whether the
+calibration loop is ON/OFF as indicated by input keyword cal_loop 
+
+From bb2686e:
+============
+
+In antenna_array.py,
+
+(*) Correct variables num_flagged and sum_wts to num_unflagged and
+sum_twts respectively in member function make_grid_cube() in class
+InterferometerArray
+(*) Update docstring for change one of the keys under attribute 
+grid_mapper of classes AntennaArray and InterferometerArray from
+'flag' to 'twts'
+
+From 456c73a:
+============
+
+In antenna_array.py,
+
+(*) Modify member function grid_convolve() of class
+InterferometerArray to account for weights from time-based flags 
+('twts') to be applied in make_grid_cube() member function of the
+same class
+(*) Modify member function make_grid_cube() of class
+InterferometerArray to account for weights from time-based flags 
+('twts') to be applied while estimating grid visibilities.
+(*) Modify member function grid_convolve() of class
+AntennaArray to account for weights from time-based flags 
+('twts') to be applied later
+(*) Bug fix in member function antenna_positions() of class
+AntennaArray to return the labels and positions in the same order as
+that returned by member function get_E_fields() of the same class.
+Earlier antenna_positions() returned labels sorted by "first antenna
+label" when one only one antenna label existed in each label and was
+copied from a similar member function from class InterferometerArray
+without appropriate corrections. Now tested to work fine using the
+script LWA_MOFF_data_analysis.py
+
+From 02a8d60:
+============
+
+In antenna_array.py,
+
+(*) Replace occurrences of tflags in member functions get_E_fields()
+in classes Antenna and AntennaArray with twts and change the 
+respective docstrings accordingly
+
+From 0c5fe73:
+============
+
+In antenna_array.py,
+
+(*) Update docstring of class AntennaArray with information on
+attribute grid_mapper
+
+From 1d9ccd2:
+============
+
+In antenna_array.py,
+
+(*) Add member function get_E_fields() to class Antenna. Update
+docstring of class Antenna accordingly
+(*) Rename member function get_E_fields() of class AntennaArray to
+get_E_fields_old() and replace occurrences throughout
+(*) Create a new generic member function get_E_fields() of class
+AntennaArra that has generic selection criteria. Test for accurate
+functionality. Update docstring of class AntennaArray accordingly
+(*) Make minor change to docstring of class get_visibilities() of
+class Interferometer
+(*) Use input keyword datapool='avg' in call to member function
+get_visibilities() of class InterferometerArray from inside member
+function grid_convolve() of class InterferometerArray
+(*) Add a description of member function make_grid_cube() to the
+docstring of its parent class AntennaArray
+
+From cd80593:
+============
+
+In antenna_array.py,
+
+(*) Rename member function get_visibilities() of class Interferometer
+to get_visibilities_old() and replace occurrences throughout
+(*) Create a new generic member function get_visibilities() of class
+Interferometer that has generic selection criteria and has been
+tested. Update docstring of class InterferometerArray accordingly
+(*) Modify output dimensions of visibilities under key 'visibilities'
+in output dictionary in member function get_visibilities() of class
+Interferometer. Update docstring of member function
+get_visibilities() of class Interferometer accordingly
+(*) Modify invocation of get_visibilities() of class
+InterferometerArray from inside grid_convolve() of the same class to
+be compatible with the changes to get_visibilities() member function
+specified in this revision
+
+From dd639f7:
+============
+
+In antenna_array.py,
+
+(*) Create member function get_visibilities() under class
+Interferometer. Update docstring of class Interferometer accordingly
+(*) Change default value of input keyword flag from False to None in
+member function get_visibilities() of class InterferometerArray
+(*) Initialize existing attributes Vf_avg and twts to None under each
+polarization key in __init__() member function of class
+InterferometerArray
+
+From 19ac0ad:
+============
+
+In antenna_array.py,
+
+(*) Add member function accumulate() under class InterferometerArray.
+Update docstring of class InterferometerArray accordingly
+(*) Inside member function accumulate() of class Interferometer,
+convert attribute twts to be floating point numbers from integers
+
+From 9ac36de:
+============
+
+In antenna_array.py,
+
+(*) In member functions f2t_on_stack() and t2f_on_stack() of class
+Interferometer, change input keyword variable from axis to ax in call
+to DSP.FT1D()
+(*) Add script LWA_FX_stack_data_analysis.py to git repository
+(*) Test stacking of interferometer array data works under both serial
+and parallel processing using the script LWA_FX_stack_data_analysis.py
+
+From a0a843f:
+============
+
+In antenna_array.py,
+
+(*) Create member function stack() under class InterferometerArray.
+Update docstring of class InterferometerArray accordingly
+(*) Create member function stack_pp() as a wrapper for member
+function stack() of class Interferometer in case of parallel
+processing
+(*) Create function unwrap_interferometer_stack() for parallel
+processing of interferometer data and flag stacking
+
+From b34eea3:
+============
+
+In antenna_array.py,
+
+(*) Create member function stack() under class Interferometer. Update
+docstring of class Interferometer accordingly
+(*) Remove assignment of attribute timestamps inside member functions
+FX_on_stack() and XF_on_stack() of class Interferometer
+
+From 81071a1:
+============
+
+In antenna_array.py,
+
+(*) Create member function flags_on_stack() for class Interferometer
+to compute visibility flags from time-stacked electric fields from
+the common timestamps between the pair of antennas. Update docstring
+of class Interferometer accordingly
+
+From 7e31571:
+============
+
+In antenna_array.py,
+
+(*) Create member function XF_on_stack() for class Interferometer
+to convert time-stacked electric fields time series to visibility
+spectra. Currently it will not work because the underlying correlate()
+function of numpy only supports 1D arrays. Needs serious development.
+Modify docstring of class Interferometer accordingly
+
+From c2956de:
+============
+
+In antenna_array.py,
+
+(*) Create member function t2f_on_stack() under class Interferometer
+to compute visibility spectra from time-stacked visibility lags.
+Update docstring of class Interferometer accordingly
+(*) Minor change to docstring of f2t_on_stack() member function of
+class Interferometer and correspondingly in the docstring of class
+Interferometer
+
+From 3055040:
+============
+
+In antenna_array.py,
+
+(*) Create member function f2t_on_stack() under class Interferometer
+to compute visibility lags from time-stacked visibility spectra.
+Update docstring of class Interferometer accordingly
+(*) Assign timestamps common to the two antennas to the attribute
+timestamps of class Interferometer inside FX_on_stack() member
+function of the same class
+(*) Use f2t_on_stack() member function of class Interferometer created
+above inside FX_on_stack() member function of the same class to
+compute visibility lags from a time-stacked visibility spectra
+
+From f4c4ce3:
+============
+
+In antenna_array.py,
+
+(*) Create member function FX_on_stack() for class Interferometer that
+can compute time-stacked FX visibility spectra from time-stacked
+electric field spectra in the individual antennas in the antenna pair.
+Update docstring of class Interferometer accordingly
+
+From 34873a2:
+============
+
+In antenna_array.py,
+
+(*) Add member function refresh_antenna_pairs() to class
+Interferometer to refresh the individual antenna pairs with
+the antenna information provided. Modify docstring of class
+Interferometer accordingly
+(*) Add member function refresh_antenna_pairs() to class
+InterferometerArray to refresh the individual antenna pairs with
+the antenna information in the attribute antenna_array. This invokes
+the member function refresh_antenna_pairs() of individual
+interferometers created above. Modify docstring of class
+InterferometerArray accordingly
+(*) In class InterferometerArray, from member function update()
+call member function refresh_antenna_pairs() immediately after
+updating antenna level information
+(*) Comment out defunct classes PolInfo_old, Antenna_old, and
+AntennaaArray_old
+(*) Update outdated docstring of member function update() of class
+InterferometerArray to accurately reflect the inputs
+(*) Add key 'stack' under keys 'antennas' and 'interferometers' of
+input dictionaries antenna_level_updates and
+interferometer_level_updates in member function update() of class
+InterferometerArray. Change docstring accordingly
+(*) Modify update() member function of class InterferometerArray to 
+pass keyword stack while updating the individual interferometer
+attributes
+(*) Remove inappropriate stack actions from member function
+update_flags() of class CrossPolInfo
+(*) Add progressbar inside update() member function of class
+InterferometerArray
+(*) Fix bug in progressbar in member function make_grid_cube() of
+class AntennaArray when verbose keyword is not set
+(*) Comment out a line in update() member function of class
+InterferometerArray that used update_old() member function of class
+Interferometer
+(*) Add internal attribute __init_flags_on to class CrossPolInfo to
+keep track of first time the flags are really updated. Change
+docstring of member function __init__() of class CrossPolInfo
+accordingly
+(*) Add internal attribute __init_data_on to class CrossPolInfo to
+keep track of first time the data are really updated. Change
+docstring of member function __init__() of class CrossPolInfo
+accordingly
+(*) Modify updating the cross-polarization products inside member
+function update() of class Interferometer without an 'if' condition
+(*) Modify member functions update_flags() in classes CrossPolInfo
+and Interferometer now accounting for first time updates using the
+internal attribute _init_flags_on of class CrossPolInfo
+(*) Modify member functions update_flags() in classes Interferometer
+to loop through different polarizations using dictionary comprehension
+during flag initialization
+(*) Minor change to correct docstring of member function
+update_flags() of class CrossPolInfo
+(*) Modify verify actions inside member function update_flags() of
+class Interferometer
+(*) Modify inside member function update() of class
+InterferometerArray the call to update_flags() of the same class
+after updating at the antenna array level
+(*) Slight increase in verbosity of member function update() of
+class InterferometerArray
+(*) Make flag stacking not append the most recent flag to the end
+of the stack if the stack is empty and input keyword stack is set to
+False in update_flags() member function of class Interferometer
+(*) Make visibility stacking not append the most recent data to the
+end of the stack if stack is empty and input keyword stack is set to
+False in update() member function of class Interferometer
+(*) Make the call to update_flags() member function of class
+Interferometer from member function update() also of the same class
+to now appear conditionally only if do_correlate is set inside the
+update() member function
+(*) Verify flags in update_flags() member function of class
+CrossPolInfo only if internal attribute _init_data_on is set to False
+(*) Set internal attribute _init_data_on to False in member function
+update() of class CrossPolInfo when input Vf and/or Vt is provided
+(*) Set internal attribute _init_data_on to False in member functions
+FX() and FX_pp() of class Interferometer whenever FX is performed
+(*) Set internal attribute _init_data_on to False in member functions
+XF() of class Interferometer whenever XF is performed
+(*) Move call to update_flags() inside member functions FX(), FX_pp()
+and XF() of class Interferometer towards the end of the block and
+with explicit arguments flags=None, stack=False and verify=True
+(*) Comment out the separate call for FX() or XF() of class
+InterferometerArray based on the input flag do_correlate at the end
+of the block inside update() member function of class
+InterferometerArray. Instead use the do_correlate flag inside the
+individual interferometer update dictionary. This avoids many
+recursive calls and conflicts between flag stacking, flag verification
+and data stacking.
+(*) In member function update() of class Interferometer, if the
+dictionary key 'do_correlate' is set to 'FX' or 'XF', since the FX()
+or XF() both perform a flag verification after determining the
+visibilities, the call to update_flags() following the call to FX()
+or XF() is only used to stack flags and not for redundant verification
+(*) Update docstring of member function FX() of class
+InterferometerArray to include description on input keywords parallel
+nproc
+(*) Update docstring of member function update() of class
+InterferometerArray to include description on input keywords parallel
+nproc
+
+From 575447c:
+============
+
+In antenna_array.py,
+
+(*) Update docstring description of input keyword 'stack' in update()
+member functions of classes Antenna and Interferometer
+(*) Add key 'stack' under key 'antennas' of input dictionary updates
+in member function update() of class AntennaArray
+(*) Modify update() member function of class AntennaArray to pass
+keyword stack while updating the individual antenna attributes
+(*) Test stacking at antenna level which is found to work
+
+From a48e77c:
+============
+
+In antenna_array.py,
+
+(*) Fix bug in member function update_flags() of classes Antenna and
+Interferometer to convert the first entry into attribute flag_stack 
+from a boolean scalar to a boolean numpy array
+(*) Add stack and verify input keywrods to member function
+update_flags() of class InterferometerArray
+(*) Fix bug in function definition of member function update_flags()
+of class Interferometer
+(*) Call update_flags() member function of class Antenna from inside
+update_flags() member function of class AntennaArray instead of
+calling the one under class PolInfo directly
+(*) Call update_flags() member function of class Interferometer from 
+inside update_flags() member function of class InterferometerArray 
+instead of calling the one under class CrossPolInfo directly
+
+From 26cac81:
+============
+
+In antenna_array.py,
+
+(*) Update member function update() of class Interferometer by
+combining an earlier range of inputs to a single input dictionary
+called update_dict. Change docstring accordingly. This is on lines
+similar to update() member function of class Antenna
+(*) Update member function update_pp() of class Interferometer to
+now act as a simple wrapper of member function update(). Change
+docstring accordingly.
+(*) Modify update() member function of class InterferometerArray to
+call the modified member function update() of class Interferometer
+with appropriate inputs
+(*) Renamed the previous versions of these modified member functions
+of class Interferometer with a suffix '_old' and will be removed in
+future revisions after the modified versions are verified to work
+
+From 93e1746:
+============
+
+In antenna_array.py,
+
+(*) Accumulate and average only unflagged visibilities in member
+function accumulate() of class Interferometer
+(*) Trim some commented lines to within 80 characters
+
+From ebe643a:
+============
+
+In antenna_array.py,
+
+(*) Rename member function FX_new() to FX_pp() of class 
+Interferometer. Update docstring of class Interferometer accordingly
+(*) Replace all occurrences of FX_new() with FX_pp() throughout
+including inside unwrap_interferometer_FX()
+(*) Rename member function FT_new() to FT_pp() of class Antenna.
+Update docstring of class Antenna accordingly
+(*) Replace all occurrences of FT_new() with FT_pp() throughout
+including inside unwrap_antenna_FT()
+(*) Rename member function update_new() to update_pp() of classes
+Antenna and Interferometer. Update docstrings of classes Antenna and
+Interferometer accordingly
+(*) Replace all occurrences of update_new() with update_pp() throughout
+including inside unwrap_interferometer_update() and
+unwrap_antenna_update()
+
+From 6a239ea:
+============
+
+In antenna_array.py,
+
+(*) Update docstring of member function update() of class Antenna
+(*) Update docstring of class Antenna to include descriptions of
+member functions FT(), FT_new(), and update_new()
+(*) Minor change to docstring of meber function delay_compensation(),
+FT(), update() of class PolInfo
+(*) Update docstring of class PolInfo to include descriptions of
+member functions FT(), update_flags() 
+(*) Minor change to docstring of class CrossPolInfo
+
+From 98c9abc:
+============
+
+In antenna_array.py,
+
+(*) Add attributes Vf_avg, twts, tbinsize to class Interferometer and
+initialize them in __init__() member function. Modify docstring
+accordingly
+(*) Add member function accumulate() to class Interferometer to
+accumulate and average visibilities. Create an appropriate docstring.
+(*) Modify docstring of class Interferometer to include description on
+member function accumulate()
+(*) Update docstring of member function update_new() of class
+Interferometer
+(*) Modify docstring of class Interferometer to include description on
+member function update_new()
+(*) Update docstring of member function FX_new() of class
+Interferometer
+(*) Modify docstring of class Interferometer to include description on
+member function FX_new()
+
+From 2f23075:
+============
+
+In antenna_array.py,
+
+(*) Remove commented lines on stacking in classes CrossPolInfo and
+PolInfo
+
+From 1a50cb3:
+============
+
+In antenna_array.py,
+
+(*) Remove input keyword stack and comment stacking lines from
+member functions FT() and FT_new() of class Antenna. Modify
+docstring accordingly
+(*) Reactivate discontinued member function update_flags() of class
+Antenna and add input keywords stack and verify and stacking
+functionality. Modify docstring accordingly
+(*) Remove keyword input stack and commented stacking lines from
+member function FX() of class Interferometer. Change docstring
+accordingly
+(*) Modify update() member functions of class Antenna to perform flag
+and data stacking, and flag verification
+(*) Add visibility stacking inside update() member function of class
+Interferometer which was missing this earlier
+(*) Modify docstring of member function update_new() of class
+Interferometer
+(*) Fix minor bugs in initialization of inputs stack and verify_flags 
+in member function update_new() of class Interferometer
+
+From b2dc205:
+============
+
+In antenna_array.py,
+
+(*) Comment out stacking in class PolInfo and its docstrings as well
+as stacking will be moved to class Antenna in future commits
+
+From c74fc02:
+============
+
+In antenna_array.py,
+
+(*) Remove attributes Et_stack, Ef_stack, and flag_stack from class
+PolInfo and insert them under class Antenna. Change the respective
+__init__() member functions and docstrings accordingly
+(*) Minor change to docstring of member function __init__() of class
+Interferometer
+
+From f96d15d:
+============
+
+In antenna_array.py,
+
+(*) Modify update_new() member function of class Interferometer to 
+proceed only if timestamp aligns with that of both antennas
+(*) Modify update_new() member function of class Interferometer to 
+update visibility and flag stacking
+(*) Update docstring accordingly in member functions update() and
+update_new() of class Interferometer
+
+From aeea7df:
+============
+
+In antenna_array.py,
+
+(*) Modify attribute timestamps from being a dictionary to be a list
+in class Interferometer. Modify __init__() member function and
+docstring accordingly
+(*) Modify update() member function of class Interferometer to proceed
+only if timestamp aligns with that of both antennas
+(*) Modify update() member function of class Interferometer to update
+visibility and flag stacking
+
+From 34c9b98:
+============
+
+In antenna_array.py,
+
+(*) Add keyword inputs verify and stack to member function
+update_flags() of class Interferometer to perform flag verification
+and stacking respectively. Change docstring accordingly
+(*) Change default assignment of flags to False with a migration of
+current values of flags inside member function update_flags() of class
+Interferometer
+(*) Change default value of input keyword verify from False to True
+in member function update_flags() of class CrossPolInfo. Change
+docstring accordingly
+
+From c55195f:
+============
+
+In antenna_array.py,
+
+(*) Remove attributes Vt_stack, Vf_stack, and flag_stack from class
+CrossPolInfo and insert them under class Interferometer. Change the
+respective __init__() member functions and docstrings accordingly
+(*) Remove stack keyword input and stacking procedure from member
+functions update() and update_flags() of class CrossPolInfo. Change
+docstring accordingly
+
+From 093042e:
+============
+
+In antenna_array.py,
+
+(*) Fix bug by initialization of correct variables in member function
+__init__() of class CrossPolInfo
+(*) Minor change in docstring of class CrossPolInfo
+(*) Fix bug in polarizations in member function update_flags() of
+class CrossPolInfo
+
+From 3587025:
+===========
+
+In antenna_array.py,
+
+(*) Add keyword inputs stack and verify to member function update()
+of class CrossPolInfo
+(*) Add stack handling functionality to member function update() of
+class CrossPolInfo
+(*) Modify slightly member function update() of class CrossPolInfo
+(*) Update docstring of member function update() of class CrossPolInfo
+accordingly
+(*) Minor modifications inside member function update() of class
+PolInfo
+
+From 00c23e1:
+============
+
+In antenna_array.py,
+
+(*) Add input keywords stack and verify to member function 
+update_flags() of class CrossPolInfo. Modify docstring accordingly
+
+From d7a20cc:
+============
+
+In antenna_array.py,
+
+(*) Comment out redundant member function update_flags() of class
+Antenna and replace its occurrence throughout classes Antenna and
+AntennaArray by direct use of the member function update_flags() of
+class PolInfo
+(*) Add keyword input stack to member function update_flags() of class
+AntennaArray. Update docstring accordingly
+(*) In member function update() of class AntennaArray, modify the
+invocation of member function update_flags() of class AntennaArray
+to now use the keyword input stack set to False
+(*) Modify stacking of flags in member function update_flags() of
+class PolInfo
+(*) Add input keyword verify to member function update_flags() of
+class PolInfo. Modify docstring accordingly
+(*) Add input keyword verify to member function update() of class
+PolInfo. Modify docstring accordingly
+(*) Add type checking of input keywords stack and verify inside
+member function update_flags() of class PolInfo
+(*) Pass keyword input verify set to False while calling member
+function update_flags() of class PolInfo from inside member function
+update() of class PolInfo
+(*) Make changes in member function update_flags() and update() of
+class AntennaArray to be compatible with changes above
+
+From b8dab4f:
+============
+
+In antenna_array.py,
+
+(*) Add attributes Vt_stack, Vf_stack, flag_stack to class
+CrossPolInfo and initialize them in __init__()
+(*) Add corresponding description in docstring
+
+From d6bed3b:
+============
+
+In antenna_array.py,
+
+(*) Add and initialize attribute timestamps in member function
+__init__() of class Interferometer
+(*) Update docstring accordingly
+
+From 3a2a05f:
+============
+
+In antenna_array.py,
+
+(*) Change initialization of attribute flag_stack in member function
+__init__() of class PolInfo
+(*) Modify updating of flag stacking in member function update_flags()
+of class PolInfo
+(*) Modify updating of Et and flag stacking in member function
+update() of class Antenna
+
+From 6b9fd5c:
+============
+
+In antenna_array.py,
+
+(*) Change initialization of attributes Et_stack, Ef_stack in member
+function __init__() of class PolInfo
+(*) Modify updating of attributes Et_stack and Ef_stack in member
+function update() of class PolInfo
+
+From 530e131:
+============
+
+In antenna_array.py,
+
+(*) Handle stacking of flags in update_flags() member function of
+class AntennaArray
+(*) Stack timestamps in update() member function of class AntennaArray
+
+From 94ca972:
+============
+
+In antenna_array.py,
+
+(*) Add and initialize attribute timestamps in __init__() member
+function of class AntennaArray
+(*) Update docstring with description on attributes timestamp and
+timestamps which was missing earlier
+(*) Update docstring of member function __init__() of class
+AntennaArray with description on keyword input antenna_array
+(*) Minor change in update() member function of class Antenna while
+updating attribute timestamps
+
+From d21c854:
+============
+
+In antenna_array.py,
+
+(*) Update attribute timestamps in member function update() of
+class Antenna
+(*) Invoke stack keyword input inside member function update() of
+class Antenna while updating flags and attributes by calling update()
+and update_flags() of class PolInfo
+
+From ae80d05:
+============
+
+In antenna_array.py,
+
+(*) Add stack as input keyword to member functions FT(), FT_new()
+and update_flags() of class Antenna
+(*) Update docstrings of member function FT() of class PolInfo and
+member functions FT(), FT_new() and update_flags() of class Antenna
+(*) Minor inconsequential change in member function FT() of class
+PolInfo
+
+From 2bb06f1:
+============
+
+In antenna_array.py,
+
+(*) Add and initialize attribute timestamps in __init__() member
+function of class Antenna to hold stack of timestamps
+
+From 84fc365:
+============
+
+In antenna_array.py,
+
+(*) Add stacking functionality to member function update() of class
+PolInfo
+(*) Modify previous block slightly to accommodate new functionality
+(*) Modify docstring accordingly
+
+From f963850:
+============
+
+In antenna_array.py,
+
+(*) Add flag stacking functionality in update_flags() member function
+of class PolInfo
+(*) Modify docstring accordingly
+
+From b8a43e8:
+============
+
+In antenna_array.py,
+
+(*) Add Fourier transform functionality on stacked electric field
+time series in FT() member function of class PolInfo. Modify docstring
+accordingly
+
+From d8d7d70:
+============
+
+In antenna_array.py,
+
+(*) Fix bug in printing flags in __str__() member function of class
+PolInfo
+
+From 8e5a19b:
+============
+
+In antenna_array.py,
+
+(*) Add attributes Et_stack, Ef_stack, flag_stack to class PolInfo
+and initialize them in __init__()
+(*) Add corresponding description in docstring
+
+From 89b28e3:
+============
+
+Added a FX data analysis script LWA_FX_data_analysis.py equivalent
+to LWA_MOFF_data_analysis.py but is untested unlike the latter.
+Committing just to switch focus on another development
+
 From 224f6dc:
 ============
 
